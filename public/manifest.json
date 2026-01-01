@@ -1,0 +1,86 @@
+{
+  "id": "/rgp",
+  "name": "RGP System — Garments Returnable Gate Pass",
+  "short_name": "RGP System",
+  "description": "Issue, track, scan & auto-close returnable gate passes with QR. Built on React.",
+  "lang": "en-IN",
+
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#white",
+  "background_color": "white",
+
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "16x16 24x24 32x32 64x64",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "icons/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-192-maskable.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512-maskable.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "maskable"
+    }
+  ],
+
+  "shortcuts": [
+    {
+      "name": "Issue RGP",
+      "short_name": "Issue",
+      "description": "Create a new Returnable Gate Pass",
+      "url": "/issue"
+    },
+    {
+      "name": "Receive / Scan",
+      "short_name": "Scan",
+      "description": "Scan QR and receive items",
+      "url": "/receive"
+    },
+    {
+      "name": "Open RGPs",
+      "short_name": "Open",
+      "description": "See all open/overdue RGPs",
+      "url": "/open"
+    }
+  ],
+
+  "categories": ["business", "productivity", "utilities"],
+
+  "screenshots": [
+    {
+      "src": "screenshots/dashboard-1280x720.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide"
+    },
+    {
+      "src": "screenshots/mobile-1080x1920.png",
+      "sizes": "1080x1920",
+      "type": "image/png",
+      "form_factor": "narrow"
+    }
+  ],
+
+  "prefer_related_applications": false
+}

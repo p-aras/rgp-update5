@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="white" />
+    <meta name="color-scheme" content="white" />
+
+    <!-- Primary Meta -->
+    <title>RGP System — Garments Returnable Gate Pass</title>
+    <meta
+      name="description"
+      content="RGP System for garments: issue, track, scan & auto-close returnable gate passes with QR—built on React."
+    />
+
+    <!-- Open Graph / Social -->
+    <meta property="og:title" content="RGP System — Garments Returnable Gate Pass" />
+    <meta
+      property="og:description"
+      content="Issue, track, scan & auto-close RGPs. Fast QR scanning at gate, clear audit logs, and printable slips."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="/" />
+    <meta property="og:image" content="%PUBLIC_URL%/og-image.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="RGP System — Garments RGP" />
+    <meta name="twitter:description" content="Fast QR-based RGP for garments units." />
+    <meta name="twitter:image" content="%PUBLIC_URL%/og-image.png" />
+
+    <!-- PWA / iOS -->
+    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
+    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+    <!-- Fonts (Inter) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Base styles + loading screen (kept minimal; CRA will still inject bundle JS) -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --card: #ffffff;
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+        --brand: #0ea5e9; /* cyan-500 */
+      }
+      * { box-sizing: border-box; }
+      html, body, #root { height: 100%; }
+      body {
+        margin: 0;
+        font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        background: var(--bg);
+        color: var(--text);
+      }
+      .splash {
+        display: grid;
+        place-items: center;
+        height: 100%;
+        padding: 24px;
+      }
+      .card {
+        width: min(720px, 92vw);
+        background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 18px;
+        padding: 28px 24px;
+        backdrop-filter: blur(6px);
+        box-shadow: 0 20px 50px rgba(0,0,0,0.35);
+      }
+      .title { margin: 0 0 6px; font-weight: 700; letter-spacing: 0.2px; }
+      .sub { margin: 0 0 18px; color: var(--muted); }
+      .row { display: grid; gap: 8px; grid-template-columns: 1fr; }
+      .pill {
+        display: inline-flex; align-items: center; gap: 8px;
+        padding: 6px 10px; border-radius: 999px;
+        background: rgba(14,165,233,0.15); color: #e0f2fe; font-size: 12px; font-weight: 600;
+      }
+      .progress {
+        height: 6px; border-radius: 999px; background: rgba(255,255,255,0.08);
+        overflow: hidden; margin-top: 12px;
+      }
+      .bar {
+        width: 40%;
+        height: 100%;
+        background: linear-gradient(90deg, var(--brand), #22d3ee);
+        animation: load 1.4s ease-in-out infinite alternate;
+      }
+      @keyframes load {
+        from { width: 25%; transform: translateX(0); }
+        to { width: 85%; transform: translateX(15%); }
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px; margin-top: 16px;
+      }
+      .chip {
+        border: 1px dashed rgba(255,255,255,0.15);
+        border-radius: 12px; padding: 8px 10px; font-size: 12px; color: var(--muted);
+      }
+      @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+      /* Make sure CRA injects bundle at end of body; no changes needed here */
+    </style>
+
+    <!-- Structured Data (optional) -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "RGP System",
+        "applicationCategory": "BusinessApplication",
+        "operatingSystem": "Web",
+        "description": "Returnable Gate Pass system for garments with QR-based receiving and audit logs.",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "INR"
+        }
+      }
+    </script>
+
+    <!-- Analytics placeholder (paste your tag here later) -->
+    <!-- e.g., <script defer src="%PUBLIC_URL%/ga.js"></script> -->
+  </head>
+
+  <body>
+    <noscript>
+      You need to enable JavaScript to run the RGP System. For QR scanning, also allow Camera access in your browser.
+    </noscript>
+
+    <!-- React mounts here -->
+    <div id="root">
+      <!-- Pretty loading state while the bundle loads -->
+      <div class="splash">
+        <div class="card">
+          <span class="pill">Loading RGP Console…</span>
+          <h1 class="title">RGP System</h1>
+          <p class="sub">Issue • Track • Scan & Auto-Close</p>
+
+          <div class="row">
+            <div class="progress"><div class="bar"></div></div>
+          </div>
+
+          <div class="grid">
+            <div class="chip">Issue RGP & print QR</div>
+            <div class="chip">Open & overdue tracking</div>
+            <div class="chip">Gate scan & partial receive</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CRA will inject your compiled JS bundle(s) here -->
+  </body>
+</html>

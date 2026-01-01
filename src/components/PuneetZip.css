@@ -1,0 +1,3219 @@
+import React, { useMemo, useState, useRef, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  FiSearch, FiRefreshCw, FiAlertTriangle, FiUser, FiCalendar, FiX, FiCheck,
+  FiScissors, FiInfo, FiPackage, FiTag, FiGrid, FiArrowLeft, FiShoppingCart,
+  FiPlus, FiMinus, FiTrash2, FiEdit2, FiDollarSign, FiStar, FiAward, FiFilter,
+  FiChevronDown, FiChevronUp, FiDownload, FiPrinter, FiLayers
+} from 'react-icons/fi';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
+
+// ---------- Helpers (module scope, hoisted) ----------
+function uniqCaseInsensitive(arr) {
+  const seen = new Set();
+  const out = [];
+  for (const s of arr ?? []) {
+    const k = String(s ?? "").trim().toLowerCase();
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    out.push(s);
+  }
+  return out;
+}
+
+function titleCase(str) {
+  return String(str ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// ============================
+// Config (replace via .env)
+// ============================
+const GOOGLE_API_KEY = "AIzaSyAomDFBkOySlIxKWSKGHe6ATv9gvaBr7uk";
+const SHEET_ID = "1Hj3JeJEKB43aYYWv8gk2UhdU6BWuEQfCg5pBlTdBMNA";
+const SHEET_IDD = "16mifNw0WMIlnZ1XRHsuH_8kVUm_6Y1O3uVsoM-Hjppo";
+
+// Safety guard
+const MAX_RANGE = 'A1:Z';
+
+// Suggestions (free text allowed)
+const DEFAULT_SUPERVISORS = ['SONU', 'SANJAY', 'MONU', 'ROHIT','VINAY'];
+
+// Helpers
+const norm = (v) => (v ?? '').toString().trim();
+const eq = (a, b) => norm(a).toLowerCase() === norm(b).toLowerCase();
+const includes = (hay, needle) => norm(hay).toLowerCase().includes(norm(needle).toLowerCase());
+
+function todayLocalISO() {
+  const d = new Date();
+  const off = d.getTimezoneOffset();
+  const local = new Date(d.getTime() - off * 60000);
+  return local.toISOString().slice(0, 10);
+}
+
+// ============================
+// LOT helpers
+// ============================
+function digitsOnly(s) {
+  const m = String(s ?? '').match(/\d+/g);
+  return m ? m.join('') : '';
+}
+
+function classifyLot(lotInput) {
+  const d = digitsOnly(lotInput);
+  const searchKey = d;
+  return { searchKey };
+}
+
+// ============================
+// Fetch lot matrix (MAIN FUNCTION)
+// ============================
+async function fetchLotMatrixViaSheetsApi(lotNo, signal) {
+  if (!GOOGLE_API_KEY || !SHEET_ID) {
+    throw new Error('Missing API key or Sheet ID.');
+  }
+
+  const { searchKey } = classifyLot(lotNo);
+  console.log('Searching for lot:', { searchKey });
+
+  // ---- New/Cutting flow only
+  try {
+    const indexData = await fetchIndexSheet(signal);
+    const lotInfo = findLotInIndex(indexData, searchKey);
+    if (lotInfo) {
+      const parsed = await fetchFromCuttingUsingIndex(lotInfo, signal);
+      parsed.source = 'cutting';
+      return parsed;
+    }
+  } catch (err) {
+    console.warn('Index path failed:', err?.message);
+  }
+
+  try {
+    const parsedAlt = await searchInCuttingSheet(searchKey, signal);
+    parsedAlt.source = 'cutting';
+    return parsedAlt;
+  } catch (err) {
+    console.warn('Cutting fallback failed:', err?.message);
+  }
+
+  throw new Error(`Lot ${searchKey} not found in Cutting`);
+}
+
+// ============================
+// Sheets access — Index & Cutting
+// ============================
+async function fetchIndexSheet(signal) {
+  try {
+    const range = encodeURIComponent('Index!A1:Z');
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}?key=${GOOGLE_API_KEY}`;
+    const res = await fetch(url, { signal });
+
+    if (!res.ok) {
+      throw new Error(`Failed to access Index sheet: ${res.status}`);
+    }
+
+    const data = await res.json();
+    if (!data?.values?.length) {
+      throw new Error('Index sheet is empty');
+    }
+
+    console.log('Fetched Index sheet with', data.values.length, 'rows');
+    return data.values;
+  } catch (err) {
+    console.error('Error fetching Index sheet:', err.message);
+    throw err;
+  }
+}
+
+function findLotInIndex(indexData, lotNo) {
+  if (!indexData || indexData.length < 2) return null;
+
+  const headers = indexData[0].map(norm);
+  const lotNumberCol = headers.findIndex(h => includes(h, 'lot number'));
+  const startRowCol = headers.findIndex(h => includes(h, 'startrow'));
+  const numRowsCol = headers.findIndex(h => includes(h, 'numrows'));
+  const headerColsCol = headers.findIndex(h => includes(h, 'headercols'));
+
+  if (lotNumberCol === -1) {
+    console.log('Lot Number column not found in Index sheet');
+    return null;
+  }
+
+  for (let i = 1; i < indexData.length; i++) {
+    const row = indexData[i] || [];
+    const rowLotNo = norm(row[lotNumberCol]);
+
+    if (rowLotNo === norm(lotNo)) {
+      return {
+        lotNumber: rowLotNo,
+        startRow: startRowCol !== -1 ? parseInt(row[startRowCol]) || 1 : 1,
+        numRows: numRowsCol !== -1 ? parseInt(row[numRowsCol]) || 20 : 20,
+        headerCols: headerColsCol !== -1 ? parseInt(row[headerColsCol]) || 7 : 7,
+        fabric: headers.includes('fabric') && row[headers.indexOf('fabric')] || '',
+        garmentType: headers.includes('garment type') && row[headers.indexOf('garment type')] || '',
+        style: headers.includes('style') && row[headers.indexOf('style')] || '',
+        sizes: headers.includes('sizes') && row[headers.indexOf('sizes')] || '',
+        shades: headers.includes('shades') && row[headers.indexOf('shades')] || '',
+      };
+    }
+  }
+
+  return null;
+}
+
+async function fetchFromCuttingUsingIndex(lotInfo, signal) {
+  const { startRow, numRows, headerCols, lotNumber } = lotInfo;
+
+  try {
+    const endRow = startRow + numRows - 1;
+    const range = encodeURIComponent(`Cutting!A${startRow}:Z${endRow}`);
+
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}?key=${GOOGLE_API_KEY}`;
+    const res = await fetch(url, { signal });
+
+    if (!res.ok) {
+      throw new Error(`Failed to access Cutting sheet: ${res.status}`);
+    }
+
+    const data = await res.json();
+    if (!data?.values?.length) {
+      throw new Error('No data found in the specified range');
+    }
+
+    console.log(`Fetched ${data.values.length} rows from Cutting sheet using index`);
+    console.log('Raw data:', data.values);
+
+    const parsed = parseMatrixWithIndexInfo(data.values, lotInfo);
+    if (parsed && parsed.rows && parsed.rows.length > 0) {
+      console.log('Successfully parsed using index information');
+      return parsed;
+    }
+
+    console.log('Primary parsing failed, trying alternative approach');
+    const parsedAlt = parseMatrix(data.values, lotNumber);
+    if (parsedAlt && parsedAlt.rows && parsedAlt.rows.length > 0) {
+      console.log('Successfully parsed with alternative method');
+      return parsedAlt;
+    }
+
+    throw new Error('Failed to parse data using both methods');
+
+  } catch (err) {
+    console.error('Error fetching using index:', err.message);
+    throw err;
+  }
+}
+
+function parseMatrixWithIndexInfo(rows, lotInfo) {
+  console.log('Parsing with index info:', lotInfo);
+  console.log('Rows to parse:', rows);
+
+  let lotNumber = lotInfo.lotNumber;
+  let style = lotInfo.style || '';
+  let fabric = lotInfo.fabric || '';
+  let garmentType = lotInfo.garmentType || '';
+  const headerCols = lotInfo.headerCols || 7;
+
+  for (let i = 0; i < Math.min(rows.length, 12); i++) {
+    const r = rows[i] || [];
+
+    if (includes(r[0], 'lot number') && r[1]) {
+      lotNumber = norm(r[1]);
+      const idxStyle = r.findIndex((c) => includes(c, 'style'));
+      if (idxStyle !== -1 && r[idxStyle + 1]) style = norm(r[idxStyle + 1]);
+    }
+    if (includes(r[0], 'fabric') && r[1]) {
+      fabric = norm(r[1]);
+      const idxGT = r.findIndex((c) => includes(c, 'garment type'));
+      if (idxGT !== -1 && r[idxGT + 1]) garmentType = norm(r[idxGT + 1]);
+    }
+
+    const styleIdx = r.findIndex(c => includes(c, 'style'));
+    if (styleIdx !== -1 && r[styleIdx + 1] && !style) style = norm(r[styleIdx + 1]);
+
+    const fabricIdx = r.findIndex(c => includes(c, 'fabric'));
+    if (fabricIdx !== -1 && r[fabricIdx + 1] && !fabric) fabric = norm(r[fabricIdx + 1]);
+
+    const garmentTypeIdx = r.findIndex(c => includes(c, 'garment type'));
+    if (garmentTypeIdx !== -1 && r[garmentTypeIdx + 1] && !garmentType) garmentType = norm(r[garmentTypeIdx + 1]);
+  }
+
+  let headerIdx = -1;
+
+  for (let i = 0; i < Math.min(rows.length, 10); i++) {
+    const r = rows[i] || [];
+
+    const hasColor = r.some(c => includes(c, 'color'));
+    const hasCT = r.some(c => includes(c, 'cutting table') || includes(c, 'table'));
+    const hasSizes = r.some(c => !isNaN(parseFloat(c)) && isFinite(c));
+
+    if ((hasColor && hasCT) || (hasColor && hasSizes) || (hasCT && hasSizes)) {
+      headerIdx = i;
+      console.log('Found header at row:', i);
+      break;
+    }
+  }
+
+  if (headerIdx === -1) {
+    for (let i = 0; i < Math.min(rows.length, 10); i++) {
+      const r = rows[i] || [];
+      const textCols = r.filter(c => typeof c === 'string' && c.trim().length > 2);
+      const numberCols = r.filter(c => !isNaN(parseFloat(c)) && isFinite(c));
+      if (textCols.length >= 2 && numberCols.length >= 2) { headerIdx = i; break; }
+    }
+    if (headerIdx === -1) {
+      for (let i = 0; i < Math.min(rows.length, 10); i++) {
+        const r = rows[i] || [];
+        if (r.some(cell => norm(cell))) { headerIdx = i; break; }
+      }
+    }
+  }
+
+  if (headerIdx === -1) {
+    console.error('Could not find header row in provided data');
+    return null;
+  }
+
+  const header = rows[headerIdx].map(norm);
+
+  let idxColor = header.findIndex(c => includes(c, 'color'));
+  let idxCT = header.findIndex(c => includes(c, 'cutting table') || includes(c, 'table'));
+  let idxTotal = header.findIndex(c => includes(c, 'total'));
+
+  if (idxColor === -1) {
+    for (let i = 0; i < header.length; i++) {
+      if (header[i] && typeof header[i] === 'string' && header[i].length > 2) { idxColor = i; break; }
+    }
+  }
+  if (idxCT === -1) {
+    for (let i = (idxColor !== -1 ? idxColor + 1 : 0); i < header.length; i++) {
+      if (header[i] && (includes(header[i], 'table') || includes(header[i], 'ct'))) { idxCT = i; break; }
+    }
+    if (idxCT === -1 && idxColor !== -1) idxCT = idxColor + 1;
+  }
+
+  const sizeCols = [];
+  const startIdx = idxCT !== -1 ? idxCT + 1 : idxColor !== -1 ? idxColor + 1 : 0;
+  const endIdx = idxTotal !== -1 ? idxTotal : Math.min(header.length, headerCols);
+
+  for (let i = startIdx; i < endIdx; i++) {
+    const colName = norm(header[i]);
+    if (colName && !includes(colName, 'total') && !includes(colName, 'alter') && !includes(colName, 'pcs')) {
+      sizeCols.push({ key: colName, index: i });
+    } else if (!colName) {
+      sizeCols.push({ key: `Size${i - startIdx + 1}`, index: i });
+    }
+  }
+
+  if (sizeCols.length === 0) {
+    for (let i = startIdx; i < endIdx; i++) {
+      for (let j = headerIdx + 1; j < Math.min(headerIdx + 5, rows.length); j++) {
+        const cellValue = rows[j]?.[i];
+        if (cellValue && !isNaN(parseFloat(cellValue)) && isFinite(cellValue)) {
+          const colName = norm(header[i]) || `Size${i - startIdx + 1}`;
+          sizeCols.push({ key: colName, index: i });
+          break;
+        }
+      }
+    }
+  }
+
+  if (sizeCols.length === 0) {
+    console.error('No size columns found');
+    return null;
+  }
+
+  const sizeKeys = sizeCols.map(s => s.key);
+
+  const allColors = new Set();
+  for (let r = headerIdx + 1; r < rows.length; r++) {
+    const row = rows[r] || [];
+    const color = idxColor !== -1 && row[idxColor] !== undefined ? norm(row[idxColor]) : '';
+    if (color && !includes(color, 'total')) allColors.add(color);
+  }
+
+  const body = [];
+  for (let r = headerIdx + 1; r < rows.length; r++) {
+    const row = rows[r] || [];
+    const color = idxColor !== -1 && row[idxColor] !== undefined ? norm(row[idxColor]) : '';
+    if (!color) { if (body.length > 0) break; continue; }
+    if (includes(color, 'total')) break;
+
+    const cuttingTable = idxCT !== -1 && row[idxCT] !== undefined ? toNumOrNull(row[idxCT]) : null;
+
+    const sizeMap = {};
+    let rowTotal = 0;
+    let hasData = false;
+
+    for (const s of sizeCols) {
+      const qty = row[s.index] !== undefined ? toNumOrNull(row[s.index]) : null;
+      sizeMap[s.key] = qty;
+      if (qty !== null) { rowTotal += qty; hasData = true; }
+    }
+
+    if (hasData) {
+      const explicitTotal = idxTotal !== -1 && row[idxTotal] !== undefined ? toNumOrNull(row[idxTotal]) : null;
+      const totalPcs = explicitTotal ?? rowTotal;
+      body.push({ color, cuttingTable, sizes: sizeMap, totalPcs });
+    }
+  }
+
+  if (allColors.size > body.length) {
+    const existingColors = new Set(body.map(row => row.color));
+    const missing = Array.from(allColors).filter(c => !existingColors.has(c));
+    for (const color of missing) {
+      const sizeMap = {};
+      for (const s of sizeCols) sizeMap[s.key] = null;
+      body.push({ color, cuttingTable: null, sizes: sizeMap, totalPcs: 0 });
+    }
+  }
+
+  body.sort((a, b) => a.color.localeCompare(b.color));
+
+  if (body.length === 0) return null;
+
+  const totals = { perSize: {}, grand: 0 };
+  for (const k of sizeKeys) totals.perSize[k] = 0;
+  for (const row of body) {
+    for (const k of sizeKeys) totals.perSize[k] += row.sizes[k] ?? 0;
+    totals.grand += row.totalPcs ?? 0;
+  }
+
+  return {
+    lotNumber,
+    style,
+    fabric,
+    garmentType,
+    sizes: sizeKeys,
+    rows: body,
+    totals
+  };
+}
+
+async function searchInCuttingSheet(lotNo, signal) {
+  console.log('Searching in Cutting sheet (fallback)');
+
+  const range = encodeURIComponent('Cutting!A1:Z');
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}?key=${GOOGLE_API_KEY}`;
+  const res = await fetch(url, { signal });
+
+  if (!res.ok) throw new Error(`Failed to access Cutting sheet: ${res.status}`);
+
+  const data = await res.json();
+  if (!data?.values?.length) throw new Error('Cutting sheet is empty');
+
+  const values = data.values;
+  const section = sliceSectionForLot(values, lotNo);
+
+  if (section?.length) {
+    const parsed = parseMatrix(section, lotNo);
+    if (parsed && parsed.rows.length) {
+      return parsed;
+    }
+  }
+
+  throw new Error('Lot not found in Cutting sheet');
+}
+
+function sliceSectionForLot(values, lotNo) {
+  const rows = values;
+  let start = -1;
+
+  for (let i = 0; i < Math.min(rows.length, 200); i++) {
+    const line = (rows[i] || []).join(' ');
+    if (includes(line, 'cutting matrix') && includes(line, `lot ${lotNo}`)) { start = i; break; }
+  }
+  if (start === -1) {
+    for (let i = 0; i < Math.min(rows.length, 200); i++) {
+      const r = rows[i] || [];
+      if (includes(r[0], 'lot number') && norm(r[1]) === norm(lotNo)) { start = Math.max(0, i - 1); break; }
+    }
+  }
+  if (start === -1) return null;
+  return rows.slice(start, Math.min(start + 80, rows.length));
+}
+
+const valOrEmpty = v => (v == null || v === 0 || v === '0' ? '' : v);
+
+function toNumOrNull(v) {
+  const t = norm(v);
+  if (t === '') return null;
+  const n = parseFloat(t.replace(/[, ]/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+
+function parseMatrix(rows, lotNo) {
+  let lotNumber = norm(lotNo);
+  let style = '';
+  let fabric = '';
+  let garmentType = '';
+
+  for (let i = 0; i < Math.min(rows.length, 12); i++) {
+    const r = rows[i] || [];
+    if (includes(r[0], 'lot number')) {
+      if (r[1]) lotNumber = norm(r[1]);
+      const idxStyle = r.findIndex((c) => includes(c, 'style'));
+      if (idxStyle !== -1 && r[idxStyle + 1]) style = norm(r[idxStyle + 1]);
+    }
+    if (includes(r[0], 'fabric')) {
+      if (r[1]) fabric = norm(r[1]);
+      const idxGT = r.findIndex((c) => includes(c, 'garment type'));
+      if (idxGT !== -1 && r[idxGT + 1]) garmentType = norm(r[idxGT + 1]);
+    }
+  }
+
+  let headerIdx = -1;
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i] || [];
+    const hasColor = r.some((c) => includes(c, 'color'));
+    const hasCT = r.some((c) => includes(c, 'cutting table'));
+    if (hasColor && hasCT) { headerIdx = i; break; }
+  }
+  if (headerIdx === -1) {
+    return { lotNumber, style, fabric, garmentType, sizes: [], rows: [], totals: { perSize: {}, grand: 0 } };
+  }
+
+  const header = rows[headerIdx].map(norm);
+  const idxColor = header.findIndex((c) => includes(c, 'color'));
+  const idxCT = header.findIndex((c) => includes(c, 'cutting table'));
+  const idxTotal = header.findIndex((c) => includes(c, 'total'));
+
+  const sizeCols = [];
+  for (let i = idxCT + 1; i < header.length; i++) {
+    if (i === idxTotal) break;
+    if (norm(header[i])) sizeCols.push({ key: header[i], index: i });
+  }
+  const sizeKeys = sizeCols.map((s) => s.key);
+
+  const allColors = new Set();
+  for (let r = headerIdx + 1; r < rows.length; r++) {
+    const row = rows[r] || [];
+    const color = norm(row[idxColor]);
+    if (color && !includes(color, 'total')) allColors.add(color);
+  }
+
+  const body = [];
+  for (let r = headerIdx + 1; r < rows.length; r++) {
+    const row = rows[r] || [];
+    const first = norm(row[idxColor]);
+    if (!first) { if (body.length) break; continue; }
+    if (includes(first, 'total')) break;
+
+    const color = first;
+    const cuttingTable = toNumOrNull(row[idxCT]);
+    const sizeMap = {};
+    let rowTotal = 0;
+    for (const s of sizeCols) {
+      const qty = toNumOrNull(row[s.index]);
+      sizeMap[s.key] = qty;
+      rowTotal += (qty ?? 0);
+    }
+    const explicitTotal = idxTotal !== -1 ? toNumOrNull(row[idxTotal]) : null;
+    const totalPcs = explicitTotal ?? rowTotal;
+    body.push({ color, cuttingTable, sizes: sizeMap, totalPcs });
+  }
+
+  if (allColors.size > body.length) {
+    const existingColors = new Set(body.map(row => row.color));
+    const missingColors = Array.from(allColors).filter(color => !existingColors.has(color));
+    for (const color of missingColors) {
+      const sizeMap = {};
+      for (const s of sizeCols) sizeMap[s.key] = null;
+      body.push({ color, cuttingTable: null, sizes: sizeMap, totalPcs: 0 });
+    }
+  }
+
+  body.sort((a, b) => a.color.localeCompare(b.color));
+
+  const totals = { perSize: {}, grand: 0 };
+  for (const k of sizeKeys) totals.perSize[k] = 0;
+  for (const row of body) {
+    for (const k of sizeKeys) totals.perSize[k] += row.sizes[k] ?? 0;
+    totals.grand += row.totalPcs ?? 0;
+  }
+
+  return { lotNumber, style, fabric, garmentType, sizes: sizeKeys, rows: body, totals };
+}
+
+// ============================
+// Zip Data Fetching
+// ============================
+async function fetchZipOptions(signal) {
+  try {
+    const range = encodeURIComponent('ZipData!A1:D');
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_IDD}/values/${range}?key=${GOOGLE_API_KEY}`;
+    const res = await fetch(url, { signal });
+
+    if (!res.ok) {
+      throw new Error(`Failed to access Zip data: ${res.status}`);
+    }
+
+    const data = await res.json();
+    if (!data?.values?.length) {
+      throw new Error('Zip data sheet is empty');
+    }
+
+    const headers = data.values[0].map(norm);
+    const rows = data.values.slice(1);
+    
+    const zipTypeIdx = headers.findIndex(h => includes(h, 'zip type'));
+    const sizeIdx = headers.findIndex(h => includes(h, 'size'));
+    const colorIdx = headers.findIndex(h => includes(h, 'color'));
+    const priceIdx = headers.findIndex(h => includes(h, 'price'));
+
+    const zipOptions = rows.map(row => ({
+      id: `${norm(row[zipTypeIdx])}-${norm(row[sizeIdx])}-${norm(row[colorIdx])}`,
+      zipType: norm(row[zipTypeIdx]),
+      size: norm(row[sizeIdx]),
+      color: norm(row[colorIdx]),
+      price: parseFloat(norm(row[priceIdx])) || 0
+    }));
+
+    return zipOptions;
+  } catch (err) {
+    console.error('Error fetching zip options:', err);
+    throw err;
+  }
+}
+
+function printableDate(d) {
+  if (!d) return '—';
+  try {
+    const dt = new Date(d);
+    const dd = String(dt.getDate()).padStart(2, '0');
+    const mm = String(dt.getMonth() + 1).padStart(2, '0');
+    const yy = String(dt.getFullYear()).slice(-2);
+    return `${dd}.${mm}.${yy}`;
+  } catch { return d; }
+}
+
+// ============================
+// React component
+// ============================
+export default function PuneetZip() {
+  const [lotInput, setLotInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [matrix, setMatrix] = useState(null);
+  const [error, setError] = useState('');
+  const abortRef = useRef(null);
+
+  const [showIssueDialog, setShowIssueDialog] = useState(false);
+  const [issueDate, setIssueDate] = useState(() => todayLocalISO());
+  const [supervisor, setSupervisor] = useState('');
+  const [dialogError, setDialogError] = useState('');
+  const [confirming, setConfirming] = useState(false);
+
+  // Zip selection states
+  const [zipOptions, setZipOptions] = useState([]);
+  const [selectedZips, setSelectedZips] = useState([]);
+  const [zipSearchTerm, setZipSearchTerm] = useState('');
+  const [selectedZipType, setSelectedZipType] = useState('all');
+  const [showZipFilters, setShowZipFilters] = useState(false);
+
+  // Black shades section state (replacing modal)
+  const [blackShadeRate, setBlackShadeRate] = useState('');
+  const [selectedBlackShade, setSelectedBlackShade] = useState('');
+  const [selectedZipTypeForBlack, setSelectedZipTypeForBlack] = useState('');
+  const [blackShadeError, setBlackShadeError] = useState('');
+
+  // ---- Supervisor suggestions (with persistence) ----
+  const LS_KEY_SUPERVISORS = 'issueStitching.supervisors';
+
+  const [supervisorOptions, setSupervisorOptions] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(LS_KEY_SUPERVISORS) || '[]');
+      return uniqCaseInsensitive([...DEFAULT_SUPERVISORS, ...saved]);
+    } catch {
+      return DEFAULT_SUPERVISORS.slice();
+    }
+  });
+
+  // Load zip options on component mount
+  useEffect(() => {
+    const loadZipOptions = async () => {
+      try {
+        const options = await fetchZipOptions();
+        setZipOptions(options);
+      } catch (err) {
+        console.error('Failed to load zip options:', err);
+      }
+    };
+    
+    loadZipOptions();
+  }, []);
+
+  // Get available black colors from matrix - ONLY ACTUAL BLACK SHADES FROM CUTTING MATRIX
+  const availableBlackColors = useMemo(() => {
+    if (!matrix || !matrix.rows) return [];
+    
+    // Filter colors that contain "black" (case insensitive) - ONLY FROM ACTUAL CUTTING MATRIX
+    const blackColors = matrix.rows
+      .map(row => norm(row.color))
+      .filter(color => includes(color, 'black'))
+      .filter((color, index, self) => self.indexOf(color) === index); // Remove duplicates
+    
+    return blackColors;
+  }, [matrix]);
+
+  function saveSupervisorOptions(next) {
+    const onlyCustom = next.filter(
+      s => !DEFAULT_SUPERVISORS.map(x => x.toLowerCase()).includes((s || '').toLowerCase())
+    );
+    localStorage.setItem(LS_KEY_SUPERVISORS, JSON.stringify(onlyCustom));
+  }
+
+  function addSupervisorToOptions(name) {
+    const t = titleCase(name);
+    if (!t) return;
+    const next = uniqCaseInsensitive([...supervisorOptions, t]);
+    setSupervisorOptions(next);
+    saveSupervisorOptions(next);
+  }
+
+  const typedIsNewSupervisor = useMemo(() => {
+    const t = (supervisor ?? '').trim().toLowerCase();
+    if (!t) return false;
+    return !supervisorOptions.some(opt => (opt || '').toLowerCase() === t);
+  }, [supervisor, supervisorOptions]);
+
+  const canSearch = useMemo(() => norm(lotInput).length > 0 && !loading, [lotInput, loading]);
+
+  // Get unique zip types for filtering
+  const zipTypes = useMemo(() => {
+    const types = [...new Set(zipOptions.map(zip => zip.zipType))];
+    return ['all', ...types];
+  }, [zipOptions]);
+
+  // Filter zip options based on search and type filter
+  const filteredZipOptions = useMemo(() => {
+    let filtered = zipOptions.filter(zip => 
+      !zip.color.toLowerCase().includes('black') // Exclude black colors (handled separately)
+    );
+
+    // Apply type filter
+    if (selectedZipType !== 'all') {
+      filtered = filtered.filter(zip => zip.zipType === selectedZipType);
+    }
+
+    // Apply search filter
+    if (zipSearchTerm) {
+      filtered = filtered.filter(zip => 
+        zip.zipType.toLowerCase().includes(zipSearchTerm.toLowerCase()) ||
+        zip.size.toLowerCase().includes(zipSearchTerm.toLowerCase()) ||
+        zip.color.toLowerCase().includes(zipSearchTerm.toLowerCase())
+      );
+    }
+
+    return filtered;
+  }, [zipOptions, selectedZipType, zipSearchTerm]);
+
+  // Group zips by type for better organization
+  const groupedZipOptions = useMemo(() => {
+    const groups = {};
+    filteredZipOptions.forEach(zip => {
+      if (!groups[zip.zipType]) {
+        groups[zip.zipType] = [];
+      }
+      groups[zip.zipType].push(zip);
+    });
+    return groups;
+  }, [filteredZipOptions]);
+
+  // Auto-fill rate based on selected zip type and "BLACK" color from sheet
+  const findMatchingZipRate = (zipType) => {
+    // Sheet mein bas "BLACK" search karega, cutting matrix mein "BLACK(FAWN)" etc ho sakta hai
+    const matchingZip = zipOptions.find(zip => 
+      zip.zipType.toLowerCase() === zipType.toLowerCase() && 
+      zip.color.toLowerCase().includes('black') // Sheet mein bas BLACK hoga
+    );
+    return matchingZip ? matchingZip.price : '';
+  };
+
+  // Zip selection handlers
+  const handleZipSelect = (zip) => {
+    setSelectedZips(prev => {
+      const exists = prev.find(z => z.id === zip.id);
+      if (exists) {
+        return prev.filter(z => z.id !== zip.id);
+      } else {
+        return [...prev, { ...zip, quantity: 1, pieces: 1 }];
+      }
+    });
+  };
+
+  const updateZipQuantity = (zipId, quantity) => {
+    setSelectedZips(prev => 
+      prev.map(zip => 
+        zip.id === zipId ? { ...zip, quantity: Math.max(1, quantity) } : zip
+      )
+    );
+  };
+
+  const updateZipPieces = (zipId, pieces) => {
+    setSelectedZips(prev => 
+      prev.map(zip => 
+        zip.id === zipId ? { ...zip, pieces: Math.max(1, pieces) } : zip
+      )
+    );
+  };
+
+  const removeZip = (zipId) => {
+    setSelectedZips(prev => prev.filter(zip => zip.id !== zipId));
+  };
+
+  const clearAllZips = () => {
+    setSelectedZips([]);
+  };
+
+  // Black shade handlers with auto-rate filling
+  const handleBlackShadeSelect = (shade) => {
+    setSelectedBlackShade(shade);
+    
+    // Auto-fill rate only if zip type is selected
+    if (selectedZipTypeForBlack) {
+      const autoRate = findMatchingZipRate(selectedZipTypeForBlack);
+      if (autoRate) {
+        setBlackShadeRate(autoRate.toString());
+      }
+    }
+  };
+
+  // Handle zip type selection for black shades
+  const handleZipTypeSelectForBlack = (zipType) => {
+    setSelectedZipTypeForBlack(zipType);
+    
+    // Auto-fill rate when zip type is selected
+    const autoRate = findMatchingZipRate(zipType);
+    if (autoRate) {
+      setBlackShadeRate(autoRate.toString());
+    }
+  };
+
+  const handleAddBlackShade = () => {
+    if (!selectedBlackShade || !blackShadeRate || !selectedZipTypeForBlack) {
+      setBlackShadeError('Please select zip type, black shade and enter rate');
+      return;
+    }
+
+    const rate = parseFloat(blackShadeRate);
+    if (isNaN(rate) || rate <= 0) {
+      setBlackShadeError('Please enter a valid rate');
+      return;
+    }
+
+    const blackZip = {
+      id: `black-${selectedBlackShade}-${selectedZipTypeForBlack}-${Date.now()}`,
+      zipType: selectedZipTypeForBlack,
+      size: 'One Size',
+      color: selectedBlackShade,
+      price: rate,
+      quantity: 1,
+      pieces: 1,
+      isCustom: true
+    };
+
+    setSelectedZips(prev => [...prev, blackZip]);
+    setSelectedBlackShade('');
+    setSelectedZipTypeForBlack('');
+    setBlackShadeRate('');
+    setBlackShadeError('');
+  };
+
+  const calculateZipTotal = () => {
+    return selectedZips.reduce((total, zip) => {
+      const zipTotal = zip.price * zip.quantity * zip.pieces;
+      return total + zipTotal;
+    }, 0);
+  };
+
+  const handleSearch = async (e) => {
+    e?.preventDefault?.();
+    if (!canSearch) return;
+
+    setError('');
+    setMatrix(null);
+    setLoading(true);
+
+    abortRef.current?.abort?.();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+
+    try {
+      const data = await fetchLotMatrixViaSheetsApi(norm(lotInput), ctrl.signal);
+      setMatrix(data);
+    } catch (err) {
+      setError(err?.message || "Failed to fetch data.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClear = () => {
+    setLotInput('');
+    setMatrix(null);
+    setError('');
+    setSelectedZips([]);
+    setZipSearchTerm('');
+    setSelectedZipType('all');
+    setSelectedBlackShade('');
+    setSelectedZipTypeForBlack('');
+    setBlackShadeRate('');
+    setBlackShadeError('');
+    abortRef.current?.abort?.();
+  };
+
+  const handleBack = () => {
+    if (window.history?.length > 1) window.history.back();
+    else window.close?.();
+  };
+
+  const openIssueDialog = () => {
+    setDialogError('');
+    setSupervisor('');
+    setIssueDate(todayLocalISO());
+    setShowIssueDialog(true);
+  };
+  const closeIssueDialog = () => {
+    if (confirming) return;
+    setShowIssueDialog(false);
+  };
+
+  const handleConfirmIssue = async () => {
+    if (!norm(supervisor)) { setDialogError('Supervisor is required.'); return; }
+    if (!matrix) { setDialogError('Nothing to submit. Search a lot first.'); return; }
+    setDialogError('');
+    setConfirming(true);
+
+    try {
+      // Persist the supervisor to suggestions if new
+      addSupervisorToOptions(supervisor);
+
+      // Generate PDF only - no data storage
+      await generateIssuePdf(matrix, { issueDate, supervisor, selectedZips });
+
+      // Close dialog
+      setShowIssueDialog(false);
+    } catch (e) {
+      setDialogError(e?.message || 'Failed to generate PDF.');
+    } finally {
+      setConfirming(false);
+    }
+  };
+
+  const displaySizes = useMemo(() => {
+    if (!matrix) return [];
+    return matrix.sizes || [];
+  }, [matrix]);
+
+  const columns = useMemo(
+    () => (matrix ? ['Color', 'Cutting Table', ...displaySizes, 'Total Pcs'] : []),
+    [matrix, displaySizes]
+  );
+
+  // ================= PDF Generation Only =================
+  async function generateIssuePdf(matrix, { issueDate, supervisor, selectedZips }) {
+    if (!matrix) return;
+
+    const line = 0.9;
+
+    function printableDate(d) {
+      if (!d) return '';
+      const dt = new Date(d);
+      if (isNaN(dt)) return String(d);
+      const dd = String(dt.getDate()).padStart(2, '0');
+      const mm = String(dt.getMonth() + 1).padStart(2, '0');
+      const yyyy = dt.getFullYear();
+      return `${dd}/${mm}/${yyyy}`;
+    }
+
+    function filenameDatePart(d) {
+      if (!d) return 'unknown';
+      const dt = new Date(d);
+      if (isNaN(dt)) return 'unknown';
+      return `${dt.getFullYear()}${String(dt.getMonth() + 1).padStart(2,'0')}${String(dt.getDate()).padStart(2,'0')}`;
+    }
+
+    function cleanString(v) {
+      return norm(v);
+    }
+
+    function parsePrice(v) {
+      if (typeof v === 'number') return v;
+      if (typeof v !== 'string') return 0;
+      
+      let cleaned = v.replace(/[^\d.]/g, '');
+      const parts = cleaned.split('.');
+      if (parts.length > 2) {
+        cleaned = parts[0] + '.' + parts[1];
+      } else if (parts.length === 1) {
+        cleaned = parts[0];
+      }
+      
+      const result = parseFloat(cleaned);
+      return isNaN(result) ? 0 : result;
+    }
+
+    function formatPlainNumber(n) {
+      const num = Number(n || 0);
+      return num.toFixed(2);
+    }
+
+    const normalizedZips = (selectedZips || []).map(zip => ({
+      zipType: cleanString(zip.zipType),
+      size: cleanString(zip.size),
+      color: cleanString(zip.color),
+      price: parsePrice(zip.price),
+      qty: Math.max(1, parseInt(zip.quantity || zip.qty) || 1),
+      pieces: Math.max(1, parseInt(zip.pieces) || 1)
+    }));
+
+    const sizesRaw = matrix.sizes || [];
+    const sizeLabels = sizesRaw.map(s => (s == null || s === 0 || s === '0') ? '' : String(s));
+    const sizes = sizeLabels.map((label, idx) => ({ label, idx })).filter(x => x.label !== '');
+
+    const orientation = (sizes.length + 6) > 12 ? 'landscape' : 'portrait';
+    const doc = new jsPDF({ orientation, unit: 'pt', format: 'A4' });
+    const W = doc.internal.pageSize.getWidth();
+    const H = doc.internal.pageSize.getHeight();
+
+    const M = 18;
+    const borderPad = 6;
+    doc.setDrawColor(0); doc.setTextColor(0); doc.setLineWidth(line);
+    const borderX = 8, borderY = 8, borderW = W - 16, borderH = H - 16;
+    doc.rect(borderX, borderY, borderW, borderH);
+
+    const CM = M + borderPad;
+    const headerTop = CM + 12;
+    const contentWidth = W - (CM * 2);
+
+    const minSectionW = 140;
+    let sectionW = Math.floor(contentWidth / 3);
+    if (sectionW < minSectionW) sectionW = minSectionW;
+    if (sectionW * 3 > contentWidth) sectionW = Math.floor(contentWidth / 3);
+
+    const s1X = CM, s2X = s1X + sectionW, s3X = s2X + sectionW, sectionH = 48;
+    doc.setLineWidth(0.9);
+    doc.rect(CM, headerTop - 6, sectionW * 3, sectionH + 12);
+    doc.setLineWidth(0.6);
+    doc.rect(s1X, headerTop, sectionW, sectionH);
+    doc.rect(s2X, headerTop, sectionW, sectionH);
+    doc.rect(s3X, headerTop, sectionW, sectionH);
+
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
+    let headingY = headerTop - 10; if (headingY < borderY + 12) headingY = borderY + 12;
+    doc.text('ZIP ORDER', borderX + borderW / 2, headingY, { align: 'center' });
+
+    function printLabelValue(label, value, x, y, labelFont = { style: 'bold', size: 11 }, valueFont = { style: 'normal', size: 11 }, maxValueW = null) {
+      doc.setFont('helvetica', labelFont.style); doc.setFontSize(labelFont.size);
+      doc.text(label, x, y);
+      const pad = 6;
+      const valueX = x + doc.getTextWidth(label) + pad;
+      doc.setFont('helvetica', valueFont.style); doc.setFontSize(valueFont.size);
+      let valText = cleanString(value);
+      if (maxValueW && doc.getTextWidth(valText) > maxValueW) {
+        while (valText.length && doc.getTextWidth(valText + '…') > maxValueW) valText = valText.slice(0, -1);
+        valText += '…';
+      }
+      doc.text(valText, valueX, y);
+    }
+
+    // Header boxes content
+    const s1InnerX = s1X + 8;
+    let s1Y = headerTop + 16;
+    printLabelValue('Date', printableDate(issueDate), s1InnerX, s1Y);
+    s1Y += 20;
+    printLabelValue('Item', cleanString(matrix.garmentType || matrix.style || ''), s1InnerX, s1Y);
+
+    const s2InnerX = s2X + 8;
+    let s2Y = headerTop + 16;
+    printLabelValue('Fabric', cleanString(matrix.fabric || ''), s2InnerX, s2Y);
+    s2Y += 18;
+    printLabelValue('Priority', cleanString(matrix.priority ?? ''), s2InnerX, s2Y);
+
+    const s3InnerX = s3X + 8;
+    let s3Y = headerTop + 16;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+    const lotVal = cleanString(matrix.lotNumber || '');
+    const lotLabelW = doc.getTextWidth('Lot No.');
+    const lotAvailable = sectionW - (s3InnerX - s3X) - lotLabelW - 16;
+    let lotToPrint = lotVal; let lotFs = 12;
+    doc.setFontSize(lotFs);
+    while (doc.getTextWidth(lotToPrint) > lotAvailable && lotFs > 8) { lotFs -= 0.5; doc.setFontSize(lotFs); }
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.text('Lot No.', s3InnerX, s3Y);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(lotFs); doc.text(lotToPrint, s3InnerX + lotLabelW + 6, s3Y);
+    s3Y += 18;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.text('Supervisor: ', s3InnerX, s3Y);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+    doc.text(cleanString(supervisor ?? '________'), s3InnerX + doc.getTextWidth('Supervisor') + 20, s3Y);
+
+    const headerBottomY = headerTop + sectionH + 6;
+    const tableTop = Math.max(headerBottomY, headingY + 12) + 8;
+
+    // Main sizes table
+    const head = [[ 'M.No', 'COLOR', ...sizes.map(s => s.label), 'PCS' ]];
+
+    function getSizeCell(r, label, index) {
+      if (!r) return '';
+      const s = r.sizes;
+      if (s && typeof s === 'object' && !Array.isArray(s) && (label in s)) return cleanString(s[label]);
+      if (s && (Array.isArray(s) || (typeof s === 'object' && (index in s)))) return cleanString(s[index]);
+      if (r[`size_${label}`] !== undefined) return cleanString(r[`size_${label}`]);
+      if (r[`size${index}`] !== undefined) return cleanString(r[`size${index}`]);
+      if (typeof s === 'string') return cleanString(s);
+      if (r[label] !== undefined) return cleanString(r[label]);
+      return '';
+    }
+
+    const body = (matrix.rows || []).map((r) => {
+      const rowSizes = sizes.map(s => getSizeCell(r, s.label, s.idx));
+      return [
+        cleanString(r.mNo ?? ''),
+        cleanString(r.color ?? ''),
+        ...rowSizes,
+        cleanString(r.totalPcs ?? r.total ?? r.pcs ?? '')
+      ];
+    });
+
+    function getTotalForSize(label, index) {
+      if (!matrix.totals) return '';
+      const t = matrix.totals.sizes ?? matrix.totals.sizeTotals ?? matrix.totals;
+      if (!t) return '';
+      if (t[label] !== undefined) return cleanString(t[label]);
+      if (t[index] !== undefined) return cleanString(t[index]);
+      return '';
+    }
+
+    const footRow = [
+      '',
+      'TOTAL',
+      ...sizes.map(s => getTotalForSize(s.label, s.idx)),
+      cleanString(matrix.totals?.grand ?? matrix.totals?.total ?? '')
+    ];
+
+    const CM2 = CM;
+    const available = W - (CM2 * 2);
+    const fixedW = { mno: 55, color: 70, pcs: 45 };
+    const fixedSum = Object.values(fixedW).reduce((a, b) => a + b, 0);
+    const sizesCount = sizes.length;
+    const desiredSizeW = 18;
+    let sizeW = 0;
+    if (sizesCount) {
+      const candidate = Math.floor((available - fixedSum) / sizesCount);
+      sizeW = candidate > desiredSizeW ? candidate : desiredSizeW;
+    }
+    const idxMno = 0, idxColor = 1, idxFirstSize = 2, idxPcs = idxFirstSize + sizesCount;
+    const colStyles = {
+      [idxMno]: { halign: 'center', cellWidth: fixedW.mno, overflow: 'linebreak' },
+      [idxColor]: { halign: 'left', cellWidth: fixedW.color, overflow: 'linebreak' },
+      [idxPcs]: { halign: 'center', cellWidth: fixedW.pcs, overflow: 'linebreak' }
+    };
+    for (let i = 0; i < sizesCount; i++) colStyles[idxFirstSize + i] = { halign: 'center', cellWidth: sizeW, overflow: 'linebreak' };
+
+    autoTable(doc, {
+      head, body, foot: [footRow],
+      startY: tableTop,
+      theme: 'grid',
+      tableWidth: available,
+      styles: {
+        font: 'helvetica',
+        fontSize: 9,
+        textColor: [0,0,0],
+        lineColor: [0,0,0],
+        lineWidth: line,
+        cellPadding: 5,
+        halign: 'center',
+        valign: 'middle',
+        overflow: 'linebreak'
+      },
+      headStyles: { fillColor: [255,255,255], textColor: [0,0,0], fontStyle: 'bold', fontSize: 10, halign: 'center' },
+      footStyles: { fillColor: [255,255,255], textColor: [0,0,0], fontStyle: 'bold', fontSize: 9, halign: 'center' },
+      columnStyles: colStyles,
+      margin: { left: CM2, right: CM2 }
+    });
+
+    // Selected Zips table
+    if (normalizedZips.length > 0) {
+      const afterTableY = doc.lastAutoTable ? (doc.lastAutoTable.finalY + 24) : (tableTop + 200);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(12); 
+      doc.text('SELECTED ZIPS', CM, afterTableY);
+      
+      const zipTableTop = afterTableY + 16;
+
+      const zipHead = [['Zip Type', 'Size', 'Color', 'Price', 'Qty', 'Pieces', 'Total']];
+      
+      const zipBody = normalizedZips.map(z => [
+        z.zipType,
+        z.size,
+        z.color,
+        formatPlainNumber(z.price),
+        z.qty.toString(),
+        z.pieces.toString(),
+        formatPlainNumber(z.price * z.qty * z.pieces)
+      ]);
+
+      const totalAmount = normalizedZips.reduce((sum, z) => sum + (z.price * z.qty * z.pieces), 0);
+      const zipFoot = [[ 
+        '', '', '', '', '', 'Total:', 
+        formatPlainNumber(totalAmount) 
+      ]];
+
+      const zipColStyles = { 
+        0: { cellWidth: 70 },
+        1: { cellWidth: 35 },
+        2: { cellWidth: 45 },
+        3: { cellWidth: 40, halign: 'right' }, 
+        4: { cellWidth: 25, halign: 'center' }, 
+        5: { cellWidth: 25, halign: 'center' }, 
+        6: { cellWidth: 50, halign: 'right' } 
+      };
+
+      autoTable(doc, {
+        head: zipHead,
+        body: zipBody,
+        foot: zipFoot,
+        startY: zipTableTop,
+        theme: 'grid',
+        tableWidth: available,
+        styles: {
+          font: 'helvetica',
+          fontSize: 9,
+          textColor: [0,0,0],
+          lineColor: [0,0,0],
+          lineWidth: line,
+          cellPadding: 4,
+          halign: 'left',
+        },
+        headStyles: { 
+          fillColor: [240, 240, 240], 
+          textColor: [0,0,0], 
+          fontStyle: 'bold',
+          halign: 'center'
+        },
+        footStyles: { 
+          fillColor: [240, 240, 240], 
+          textColor: [0,0,0], 
+          fontStyle: 'bold',
+          halign: 'right'
+        },
+        columnStyles: zipColStyles,
+        margin: { left: CM2, right: CM2 }
+      });
+    }
+
+    const fname = `Lot_${cleanString(matrix.lotNumber || 'Unknown')}_Issue_${filenameDatePart(issueDate)}.pdf`;
+    doc.save(fname);
+  }
+
+  return (
+    <div className="Wrap">
+      <style>
+        {`
+        /* =========================
+           Enhanced Styles - CSS Format
+           ========================= */
+       /* =========================
+   Enhanced Styles - CSS Format
+   ========================= */
+.Wrap {
+  max-width: 1800px;
+  margin: 0 auto;
+  padding: 24px 20px 40px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: #2d3748;
+  background: #ffffffff;
+  min-height: 100vh;
+}
+
+.HeaderPaper {
+  background: white;
+  border-radius: 20px;
+  padding: 28px;
+  margin-bottom: 24px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+  align-items: center;
+  border: 1px solid #f1f5f9;
+}
+
+@media (max-width: 900px) {
+  .HeaderPaper {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+}
+
+.TitleSection {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.TitleSection h1 {
+  margin: 0 0 8px 0;
+  font-size: 2rem;
+  font-weight: 800;
+  color: #1e293b;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.TitleSection p {
+  margin: 0;
+  color: #64748b;
+  font-size: 1.05rem;
+  font-weight: 500;
+}
+
+.TitleIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 70px;
+  height: 70px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  color: white;
+  font-size: 28px;
+  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.3);
+}
+
+.SearchSection {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.Form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
+  align-items: center;
+}
+
+@media (max-width: 560px) {
+  .Form {
+    grid-template-columns: 1fr;
+  }
+}
+
+.SearchBox {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border-radius: 16px;
+  background: #f8fafc;
+  border: 2px solid #e2e8f0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  color: #114793ff;
+  transition: all 0.3s ease;
+}
+
+.SearchBox:focus-within {
+  border-color: #8b5cf6;
+  box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.15), 0 4px 12px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+}
+
+.SearchBox input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #1e293b;
+  font-size: 1.05rem;
+  font-weight: 500;
+}
+
+.SearchBox input::placeholder {
+  color: #94a3b8;
+  font-weight: 400;
+}
+
+.BtnRow {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.BaseBtn {
+  border-radius: 14px;
+  padding: 14px 22px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  border: none;
+  transition: all 0.3s ease;
+  font-size: 0.95rem;
+  font-family: inherit;
+}
+
+.PrimaryBtn {
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  color: white;
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4);
+}
+
+.PrimaryBtn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.5);
+}
+
+.PrimaryBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+.GhostBtn {
+  background: white;
+  border: 2px solid #e2e8f0;
+  color: #64748b;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.GhostBtn:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
+}
+
+.Spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255,255,255,0.6);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.ErrorCard {
+  margin-bottom: 24px;
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 12px;
+  align-items: center;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: #dc2626;
+  padding: 16px 20px;
+  border-radius: 14px;
+  font-weight: 500;
+  font-size: 0.95rem;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.1);
+}
+
+.HintCard {
+  margin-top: 24px;
+  padding: 20px;
+  border-radius: 16px;
+  background: white;
+  border: 2px dashed #cbd5e1;
+  color: #64748b;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.HintCard code {
+  background: #f1f5f9;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-family: 'JetBrains Mono', monospace;
+  color: #475569;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.ContentGrid {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 28px;
+}
+
+@media (max-width: 1100px) {
+  .ContentGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.InfoPanel {
+  background: white;
+  border-radius: 20px;
+  padding: 28px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+  border: 1px solid #f1f5f9;
+  display: flex;
+  flex-direction: column;
+  height: fit-content;
+}
+
+.TablePanel {
+  background: white;
+  border-radius: 20px;
+  padding: 28px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+  border: 1px solid #f1f5f9;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.PanelHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+  padding-bottom: 20px;
+  border-bottom: 2px solid #f1f5f9;
+}
+
+.PanelHeader h3 {
+  margin: 0;
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.PanelHeader svg {
+  color: #8b5cf6;
+  font-size: 1.2rem;
+}
+
+.InfoGrid {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.InfoItem {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 16px;
+  align-items: center;
+  padding: 16px;
+  background: #f8fafc;
+  border-radius: 14px;
+  border: 1px solid #f1f5f9;
+  transition: all 0.2s ease;
+}
+
+.InfoItem:hover {
+  background: #f1f5f9;
+  transform: translateY(-1px);
+}
+
+.InfoIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  color: white;
+  font-size: 1.2rem;
+}
+
+.InfoLabel {
+  font-size: 0.9rem;
+  color: #64748b;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.InfoValue {
+  font-weight: 600;
+  color: #1e293b;
+  font-size: 1.05rem;
+}
+
+.SummaryCard {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 28px;
+  padding: 20px;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+}
+
+.SummaryItem {
+  text-align: center;
+  padding: 12px;
+}
+
+.SummaryLabel {
+  font-size: 0.85rem;
+  color: #64748b;
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
+.SummaryValue {
+  font-weight: 800;
+  color: #1e293b;
+  font-size: 1.5rem;
+}
+
+.ActionsRow {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: auto;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.TableContainer {
+  width: 100%;
+  overflow: auto;
+  border-radius: 12px;
+}
+
+.Table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.92rem;
+}
+
+.Table thead th {
+  position: sticky;
+  top: 0;
+  background: linear-gradient(135deg, #004f9eff 0%, #0066cc 100%);
+  text-align: center;
+  padding: 16px 18px;
+  border-bottom: 2px solid #e2e8f0;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  border-radius: 0;
+  font-size: 0.95rem;
+}
+
+.Table tbody td, .Table tfoot td {
+  padding: 14px 16px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.Table tbody tr {
+  transition: background 0.2s ease;
+}
+
+.Table tbody tr:hover {
+  background: #f8fafc;
+}
+
+.Table td.num {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.Table td.strong, .Table th.strong {
+  font-weight: 700;
+}
+
+.Table tfoot td {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  font-weight: 800;
+  color: #1e293b;
+  font-size: 0.95rem;
+  border-top: 2px solid #e2e8f0;
+}
+
+/* Enhanced Zip Selection Styles */
+.ZipSelectionSection {
+  margin: 32px 0;
+  padding: 28px;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-radius: 20px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.05);
+}
+
+.ZipSectionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 20px;
+}
+
+.ZipSectionHeader h4 {
+  margin: 0 0 8px 0;
+  font-size: 1.3rem;
+  color: #1e293b;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ZipStats {
+  font-size: 0.95rem;
+  color: #64748b;
+  font-weight: 500;
+  background: white;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  display: inline-block;
+}
+
+.ZipActions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ZipActionBtn {
+  padding: 10px 16px;
+  border-radius: 12px;
+  border: none;
+  background: #6366f1;
+  color: white;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.ZipActionBtn:hover {
+  background: #4f46e5;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+}
+
+.ZipActionBtn.variant-danger {
+  background: #ef4444;
+}
+
+.ZipActionBtn.variant-danger:hover {
+  background: #dc2626;
+}
+
+.ZipActionBtn.variant-secondary {
+  background: #6b7280;
+}
+
+.ZipActionBtn.variant-secondary:hover {
+  background: #4b5563;
+}
+
+.ZipFilters {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 20px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.FilterGroup {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.FilterLabel {
+  font-weight: 600;
+  color: #374151;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.FilterSelect {
+  padding: 10px 12px;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  background: white;
+  color: #374151;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.FilterSelect:focus {
+  outline: none;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.ZipSearchSection {
+  margin-bottom: 24px;
+}
+
+.ZipSelectionGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-height: 500px;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+.ZipSelectionGrid::-webkit-scrollbar {
+  width: 6px;
+}
+
+.ZipSelectionGrid::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 3px;
+}
+
+.ZipSelectionGrid::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+.ZipSelectionGrid::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.ZipTypeSection {
+  background: white;
+  border-radius: 16px;
+  padding: 20px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.ZipTypeHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid #f1f5f9;
+}
+
+.ZipTypeTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1.1rem;
+  color: #1e293b;
+  font-weight: 700;
+}
+
+.ZipTypeCount {
+  font-size: 0.85rem;
+  color: #64748b;
+  background: #f1f5f9;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+.ZipOptionsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 16px;
+}
+
+.ZipOptionCard {
+  padding: 16px;
+  border: 2px solid #e2e8f0;
+  background: white;
+  border-radius: 12px;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.ZipOptionCard.selected {
+  border-color: #6366f1;
+  background: #f0f9ff;
+}
+
+.ZipOptionCard:hover {
+  border-color: #6366f1;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.15);
+}
+
+.ZipOptionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.ZipSizeBadge {
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.ZipPriceTag {
+  font-weight: 700;
+  color: #059669;
+  font-size: 0.95rem;
+}
+
+.ZipColor {
+  font-size: 0.9rem;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.SelectionIndicator {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  transition: all 0.2s ease;
+}
+
+.SelectionIndicator.selected {
+  background: #10b981;
+}
+
+.EmptyZipSearch {
+  text-align: center;
+  padding: 40px 20px;
+  color: #64748b;
+  grid-column: 1 / -1;
+}
+
+.EmptyZipSearch p {
+  margin: 12px 0 8px 0;
+  font-weight: 600;
+  font-size: 1.1rem;
+}
+
+.EmptyZipSearch span {
+  font-size: 0.9rem;
+}
+
+.SelectedZipsList {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.SelectedHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 0;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.SelectedHeader h5 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #1e293b;
+  font-weight: 700;
+}
+
+.TotalPreview {
+  font-weight: 700;
+  color: #059669;
+  font-size: 1.1rem;
+  background: #f0fdf4;
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid #bbf7d0;
+}
+
+.ZipCard {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  background: white;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  transition: all 0.3s ease;
+}
+
+.ZipCard:hover {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+  transform: translateY(-2px);
+}
+
+.ZipInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.ZipType {
+  font-weight: 700;
+  color: #1e293b;
+  font-size: 1.05rem;
+}
+
+.ZipDetails {
+  display: flex;
+  gap: 16px;
+  font-size: 0.9rem;
+  color: #64748b;
+  align-items: center;
+}
+
+.CustomBadge {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  color: white;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.ZipControls {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.ControlGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+
+.ControlLabel {
+  font-size: 0.8rem;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.QuantityControl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f8fafc;
+  border-radius: 10px;
+  padding: 6px;
+  border: 1px solid #e2e8f0;
+}
+
+.QtyBtn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: #6366f1;
+  color: white;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+}
+
+.QtyBtn:hover:not(:disabled) {
+  background: #4f46e5;
+  transform: scale(1.1);
+}
+
+.QtyBtn:disabled {
+  background: #e2e8f0;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.QtyInput {
+  width: 50px;
+  text-align: center;
+  border: none;
+  background: transparent;
+  font-weight: 700;
+  color: #1e293b;
+  font-size: 0.95rem;
+}
+
+.QtyInput::-webkit-outer-spin-button,
+.QtyInput::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.ZipPrice {
+  font-weight: 700;
+  color: #059669;
+  font-size: 1.1rem;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 120px;
+  justify-content: flex-end;
+}
+
+.RemoveZipBtn {
+  background: none;
+  border: none;
+  color: #dc2626;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.RemoveZipBtn:hover {
+  background: rgba(220, 38, 38, 0.1);
+  transform: scale(1.1);
+}
+
+.ZipTotalCard {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  border-radius: 16px;
+  color: white;
+  margin-top: 12px;
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.3);
+}
+
+.TotalLabel {
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.TotalAmount {
+  font-weight: 800;
+  font-size: 1.4rem;
+}
+
+.EmptyZipState {
+  text-align: center;
+  padding: 60px 20px;
+  color: #64748b;
+}
+
+.EmptyZipState p {
+  margin: 16px 0 8px 0;
+  font-weight: 700;
+  font-size: 1.2rem;
+}
+
+.EmptyZipState span {
+  font-size: 0.95rem;
+}
+
+/* Black Shades Section Styles - REPLACING MODAL */
+.BlackShadesSection {
+  background: white;
+  border-radius: 20px;
+  padding: 28px;
+  margin: 24px 0;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+}
+
+.BlackShadesHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 24px;
+  padding-bottom: 20px;
+  border-bottom: 2px solid #f1f5f9;
+}
+
+.BlackShadesTitle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.BlackShadesTitle h4 {
+  margin: 0;
+  font-size: 1.3rem;
+  color: #1e293b;
+  font-weight: 700;
+}
+
+.BlackShadesTitle p {
+  margin: 4px 0 0 0;
+  color: #64748b;
+  font-size: 0.95rem;
+}
+
+.BlackShadesIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 50px;
+  height: 50px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  color: white;
+  font-size: 1.3rem;
+}
+
+.BlackShadesContent {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+}
+
+@media (max-width: 900px) {
+  .BlackShadesContent {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ZipTypeSelectionBox {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-radius: 16px;
+  padding: 24px;
+  border: 1px solid #e2e8f0;
+}
+
+.SectionTitle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  font-weight: 700;
+  color: #1e293b;
+  font-size: 1.1rem;
+}
+
+.ZipTypeGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.ZipTypeOption {
+  padding: 16px;
+  border: 2px solid #e2e8f0;
+  background: white;
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: center;
+  position: relative;
+  transition: all 0.3s ease;
+}
+
+.ZipTypeOption.selected {
+  border-color: #6366f1;
+  background: #f0f9ff;
+}
+
+.ZipTypeOption:hover {
+  border-color: #6366f1;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.15);
+}
+
+.ZipTypeName {
+  font-weight: 700;
+  color: #1e293b;
+  font-size: 1rem;
+}
+
+.SelectedIndicator {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #10b981;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+}
+
+.ShadeSelectionBox {
+  background: white;
+  border-radius: 16px;
+  padding: 24px;
+  border: 1px solid #e2e8f0;
+}
+
+.ShadeGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.ShadeCard {
+  position: relative;
+  padding: 16px;
+  border: 2px solid #e2e8f0;
+  background: white;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  overflow: hidden;
+}
+
+.ShadeCard::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: transparent;
+}
+
+.ShadeCard.selected {
+  border-color: #6366f1;
+  background: #f0f9ff;
+}
+
+.ShadeCard.selected::before {
+  background: #6366f1;
+}
+
+.ShadeCard:hover {
+  border-color: #6366f1;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.15);
+  transform: translateY(-2px);
+}
+
+.ShadeColorPreview {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.ShadeColorDot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #000000;
+  border: 2px solid #e2e8f0;
+  flex-shrink: 0;
+}
+
+.ShadeName {
+  font-weight: 700;
+  color: #1e293b;
+  font-size: 1rem;
+}
+
+.ShadeStatus {
+  font-size: 0.8rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.ShadeStatus.selected {
+  color: #6366f1;
+  font-weight: 600;
+}
+
+.SelectedBadge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #10b981;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+}
+
+.RateSection {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-radius: 16px;
+  padding: 20px;
+  border: 1px solid #e2e8f0;
+  margin-top: 20px;
+}
+
+.RateHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  font-weight: 700;
+  color: #1e293b;
+  font-size: 1rem;
+  flex-wrap: wrap;
+}
+
+.AutoRateBadge {
+  background: #10b981;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.RateInputGroup {
+  position: relative;
+  max-width: 200px;
+}
+
+.RateInput {
+  width: 100%;
+  padding: 12px 12px 12px 32px;
+  border: 2px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #1e293b;
+  background: white;
+  transition: all 0.2s ease;
+}
+
+.RateInput:focus {
+  outline: none;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+.RateInput::placeholder {
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.CurrencySymbol {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #6366f1;
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.RateHint {
+  font-size: 0.8rem;
+  color: #64748b;
+  margin-top: 8px;
+  font-weight: 500;
+}
+
+.BlackShadeActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.BlackShadeError {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 12px;
+  align-items: center;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: #dc2626;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.EmptyState {
+  text-align: center;
+  padding: 40px 20px;
+  color: #64748b;
+  grid-column: 1 / -1;
+}
+
+.EmptyState h4 {
+  margin: 16px 0 8px 0;
+  font-weight: 700;
+  color: #475569;
+  font-size: 1.1rem;
+}
+
+.EmptyState p {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.EmptyIcon {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 16px;
+  color: #94a3b8;
+  font-size: 24px;
+}
+
+.Dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: white;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.2);
+  border-radius: 20px;
+  padding: 32px;
+  z-index: 1001;
+  max-width: 600px;
+  width: 90%;
+}
+
+.DialogHeader {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 28px;
+}
+
+.DialogHeader h3 {
+  margin: 0;
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #1e293b;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.IconBtn {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: transparent;
+  border: 1px solid #e2e8f0;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.IconBtn:hover {
+  background: #f8fafc;
+  color: #475569;
+  transform: scale(1.05);
+}
+
+.Field {
+  display: grid;
+  gap: 12px;
+  margin: 24px 0 20px;
+}
+
+.Field input {
+  width: 100%;
+  padding: 16px 20px;
+  border-radius: 14px;
+  border: 2px solid #e2e8f0;
+  background: white;
+  color: #1e293b;
+  outline: none;
+  transition: all 0.2s ease;
+  font-size: 1.1rem;
+  font-weight: 500;
+}
+
+.Field input:focus {
+  border-color: #8b5cf6;
+  box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.15);
+}
+
+.FieldLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 1.1rem;
+  color: #475569;
+  font-weight: 600;
+}
+
+.InlineError {
+  margin-top: 20px;
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  gap: 12px;
+  align-items: center;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: #dc2626;
+  padding: 16px 20px;
+  border-radius: 14px;
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.DialogActions {
+  margin-top: 32px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 20px;
+}
+
+.ZipSummary {
+  background: #f8fafc;
+  border-radius: 16px;
+  padding: 20px;
+  margin: 20px 0;
+  border: 1px solid #e2e8f0;
+}
+
+.SummaryLabel {
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 12px;
+  font-size: 1rem;
+}
+
+.ZipList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.ZipSummaryItem {
+  font-size: 0.9rem;
+  color: #64748b;
+  padding: 8px 12px;
+  background: white;
+  border-radius: 8px;
+  border: 1px solid #f1f5f9;
+}
+
+.TotalSummary {
+  font-weight: 700;
+  color: #059669;
+  font-size: 1.2rem;
+  text-align: right;
+  padding-top: 12px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.Backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(8px);
+  z-index: 1000;
+}        `}
+      </style>
+
+      <div className="HeaderPaper">
+        <div className="TitleSection">
+          <div className="TitleIcon"><FiScissors /></div>
+          <div>
+            <h1>PUNEET ZIP PURCHASE ORDER</h1>
+            <p>Search a Lot No. to view its Cutting Matrix and totals</p>
+          </div>
+        </div>
+
+        <div className="SearchSection">
+          <form className="Form" onSubmit={handleSearch}>
+            <label className="SearchBox">
+              <FiSearch />
+              <input
+                value={lotInput}
+                onChange={(e) => setLotInput(e.target.value)}
+                placeholder="Enter Lot No (e.g., 64003)"
+                autoFocus
+              />
+            </label>
+
+            <div className="BtnRow">
+              <motion.button
+                className="BaseBtn GhostBtn"
+                type="button"
+                onClick={handleBack}
+                whileTap={{ scale: 0.98 }}
+                title="Go back"
+              >
+                <FiArrowLeft /> Back
+              </motion.button>
+
+              <motion.button className="BaseBtn PrimaryBtn" type="submit" disabled={!canSearch} whileTap={{ scale: 0.98 }}>
+                {loading ? <div className="Spinner"></div> : <><FiSearch /> Search</>}
+              </motion.button>
+
+              <motion.button className="BaseBtn GhostBtn" type="button" onClick={handleClear} whileTap={{ scale: 0.98 }}>
+                <FiRefreshCw /> Reset
+              </motion.button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {error && (
+          <motion.div
+            className="ErrorCard"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+          >
+            <FiAlertTriangle />
+            <span>{error}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {matrix ? (
+        <>
+          <div className="ContentGrid">
+            <div className="InfoPanel">
+              <div className="PanelHeader"><FiInfo /><h3>Lot Information</h3></div>
+              <div className="InfoGrid">
+                <div className="InfoItem">
+                  <div className="InfoIcon"><FiPackage /></div>
+                  <div><div className="InfoLabel">Lot Number</div><div className="InfoValue">{matrix.lotNumber || '—'}</div></div>
+                </div>
+                <div className="InfoItem">
+                  <div className="InfoIcon"><FiTag /></div>
+                  <div><div className="InfoLabel">Style</div><div className="InfoValue">{matrix.style || '—'}</div></div>
+                </div>
+                <div className="InfoItem">
+                  <div className="InfoIcon"><FiGrid /></div>
+                  <div><div className="InfoLabel">Fabric</div><div className="InfoValue">{matrix.fabric || '—'}</div></div>
+                </div>
+                <div className="InfoItem">
+                  <div className="InfoIcon"><FiTag /></div>
+                  <div><div className="InfoLabel">Garment Type</div><div className="InfoValue">{matrix.garmentType || '—'}</div></div>
+                </div>
+              </div>
+              <div className="SummaryCard">
+                <div className="SummaryItem"><div className="SummaryLabel">Total Pieces</div><div className="SummaryValue">{matrix.totals.grand}</div></div>
+                <div className="SummaryItem"><div className="SummaryLabel">Colors</div><div className="SummaryValue">{matrix.rows.length}</div></div>
+                <div className="SummaryItem"><div className="SummaryLabel">Sizes</div><div className="SummaryValue">{matrix.sizes.length}</div></div>
+              </div>
+
+              <div className="ActionsRow">
+                <motion.button
+                  className="BaseBtn PrimaryBtn"
+                  type="button"
+                  onClick={openIssueDialog}
+                  whileTap={{ scale: 0.98 }}
+                  whileHover={{ scale: 1.02 }}
+                >
+                  <FiDownload /> Generate PDF
+                </motion.button>
+              </div>
+            </div>
+
+            <div className="TablePanel">
+              <div className="PanelHeader"><FiGrid /><h3>Cutting Matrix</h3></div>
+              <div className="TableContainer">
+                <table className="Table">
+                  <thead>
+                    <tr>{columns.map((c, i) => <th key={`${c || 'blank'}-${i}`}>{c || '\u00A0'}</th>)}</tr>
+                  </thead>
+                  <tbody>
+                    {matrix.rows.map((r, idx) => (
+                      <tr key={idx}>
+                        <td>{r.color}</td>
+                        <td className="num">{r.cuttingTable ?? ''}</td>
+                        {matrix.sizes.map((s) => (
+                          <td key={s} className="num">{r.sizes?.[s] ?? ''}</td>
+                        ))}
+                        <td className="num strong">{r.totalPcs ?? ''}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td className="strong">Total</td>
+                      <td className="num">—</td>
+                      {matrix.sizes.map((s) => (
+                        <td key={s} className="num strong">{matrix.totals.perSize?.[s] ?? 0}</td>
+                      ))}
+                      <td className="num strong">{matrix.totals.grand}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          {/* Black Shades Section - REPLACED MODAL WITH INLINE SECTION */}
+          {availableBlackColors.length > 0 && (
+            <div className="BlackShadesSection">
+              <div className="BlackShadesHeader">
+                <div className="BlackShadesTitle">
+                  <div className="BlackShadesIcon">
+                    <FiAward />
+                  </div>
+                  <div>
+                    <h4>Black Shades from Cutting Matrix</h4>
+                    <p>Select zip type and black shade to add custom zips</p>
+                  </div>
+                </div>
+                <div className="ZipStats">
+                  {availableBlackColors.length} black shades available
+                </div>
+              </div>
+
+              <div className="BlackShadesContent">
+                {/* Zip Type Selection */}
+                <div className="ZipTypeSelectionBox">
+                  <div className="SectionTitle">
+                    <FiLayers />
+                    <span>1. Select Zip Type</span>
+                  </div>
+                  <div className="ZipTypeGrid">
+                    {zipTypes.filter(type => type !== 'all').map((zipType) => (
+                      <motion.div
+                        key={zipType}
+                        className={`ZipTypeOption ${selectedZipTypeForBlack === zipType ? 'selected' : ''}`}
+                        onClick={() => handleZipTypeSelectForBlack(zipType)}
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                      >
+                        <div className="ZipTypeName">{zipType}</div>
+                        {selectedZipTypeForBlack === zipType && (
+                          <div className="SelectedIndicator">
+                            <FiCheck />
+                          </div>
+                        )}
+                      </motion.div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Black Shade Selection */}
+                <div className="ShadeSelectionBox">
+                  <div className="SectionTitle">
+                    <FiAward />
+                    <span>2. Select Black Shade</span>
+                  </div>
+                  <div className="ShadeGrid">
+                    {availableBlackColors.map((shade, index) => (
+                      <motion.div
+                        key={shade}
+                        className={`ShadeCard ${selectedBlackShade === shade ? 'selected' : ''}`}
+                        onClick={() => handleBlackShadeSelect(shade)}
+                        whileHover={{ scale: 1.03, y: -2 }}
+                        whileTap={{ scale: 0.98 }}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.1 }}
+                      >
+                        <div className="ShadeColorPreview">
+                          <div className="ShadeColorDot"></div>
+                          <div className="ShadeName">{shade}</div>
+                        </div>
+                        <div className={`ShadeStatus ${selectedBlackShade === shade ? 'selected' : ''}`}>
+                          {selectedBlackShade === shade ? 'Selected' : 'Click to select'}
+                        </div>
+                        {selectedBlackShade === shade && (
+                          <div className="SelectedBadge">
+                            <FiCheck />
+                          </div>
+                        )}
+                      </motion.div>
+                    ))}
+                  </div>
+
+                  {/* Rate Section - Only show when both zip type and shade are selected */}
+                  {(selectedZipTypeForBlack && selectedBlackShade) && (
+                    <div className="RateSection">
+                      <div className="RateHeader">
+                        <FiDollarSign />
+                        <span>Rate for {selectedZipTypeForBlack} - {selectedBlackShade}</span>
+                        {blackShadeRate && (
+                          <span className="AutoRateBadge">
+                            Auto-filled from sheet
+                          </span>
+                        )}
+                      </div>
+                      <div className="RateInputGroup">
+                        <span className="CurrencySymbol">₹</span>
+                        <input
+                          className="RateInput"
+                          type="number"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={blackShadeRate}
+                          onChange={(e) => setBlackShadeRate(e.target.value)}
+                        />
+                      </div>
+                      <div className="RateHint">
+                        Rate will be auto-filled based on selected zip type
+                      </div>
+                    </div>
+                  )}
+
+                  {blackShadeError && (
+                    <div className="BlackShadeError">
+                      <FiAlertTriangle />
+                      <span>{blackShadeError}</span>
+                    </div>
+                  )}
+
+                  <div className="BlackShadeActions">
+                    <motion.button 
+                      className="BaseBtn PrimaryBtn"
+                      type="button" 
+                      whileTap={{ scale: 0.98 }} 
+                      onClick={handleAddBlackShade}
+                      disabled={!selectedBlackShade || !blackShadeRate || !selectedZipTypeForBlack}
+                      whileHover={{ scale: (!selectedBlackShade || !blackShadeRate || !selectedZipTypeForBlack) ? 1 : 1.02 }}
+                    >
+                      <FiPlus /> Add Black Shade Zip
+                    </motion.button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Enhanced Zip Selection Section */}
+          <div className="ZipSelectionSection">
+            <div className="ZipSectionHeader">
+              <div>
+                <h4><FiShoppingCart /> Zip Selection</h4>
+                <div className="ZipStats">
+                  {selectedZips.length} zips selected • Total: ₹{calculateZipTotal().toFixed(2)}
+                </div>
+              </div>
+              <div className="ZipActions">
+                <motion.button 
+                  className="ZipActionBtn"
+                  onClick={() => setShowZipFilters(!showZipFilters)}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <FiFilter /> Filters {showZipFilters ? <FiChevronUp /> : <FiChevronDown />}
+                </motion.button>
+                {selectedZips.length > 0 && (
+                  <motion.button 
+                    className="ZipActionBtn variant-danger"
+                    onClick={clearAllZips}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <FiTrash2 /> Clear All
+                  </motion.button>
+                )}
+              </div>
+            </div>
+
+            {/* Zip Filters */}
+            <AnimatePresence>
+              {showZipFilters && (
+                <motion.div
+                  className="ZipFilters"
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                >
+                  <div className="FilterGroup">
+                    <div className="FilterLabel">Zip Type:</div>
+                    <select 
+                      className="FilterSelect"
+                      value={selectedZipType} 
+                      onChange={(e) => setSelectedZipType(e.target.value)}
+                    >
+                      {zipTypes.map(type => (
+                        <option key={type} value={type}>
+                          {type === 'all' ? 'All Types' : type}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Zip Search and Selection */}
+            <div className="ZipSearchSection">
+              <div className="SearchBox" style={{ marginBottom: '16px' }}>
+                <FiSearch />
+                <input
+                  placeholder="Search zips by type, size, or color..."
+                  value={zipSearchTerm}
+                  onChange={(e) => setZipSearchTerm(e.target.value)}
+                />
+              </div>
+
+              <div className="ZipSelectionGrid">
+                {Object.entries(groupedZipOptions).map(([zipType, zips]) => (
+                  <div className="ZipTypeSection" key={zipType}>
+                    <div className="ZipTypeHeader">
+                      <div className="ZipTypeTitle">
+                        <FiLayers />
+                        <span>{zipType}</span>
+                      </div>
+                      <div className="ZipTypeCount">{zips.length} options</div>
+                    </div>
+                    <div className="ZipOptionsGrid">
+                      {zips.map(zip => (
+                        <motion.div 
+                          className={`ZipOptionCard ${selectedZips.some(z => z.id === zip.id) ? 'selected' : ''}`}
+                          key={zip.id}
+                          onClick={() => handleZipSelect(zip)}
+                          whileHover={{ scale: 1.02 }}
+                          whileTap={{ scale: 0.98 }}
+                        >
+                          <div className="ZipOptionHeader">
+                            <div className="ZipSizeBadge">{zip.size}</div>
+                            <div className="ZipPriceTag">₹{zip.price.toFixed(2)}</div>
+                          </div>
+                          <div className="ZipColor">{zip.color}</div>
+                          <div className={`SelectionIndicator ${selectedZips.some(z => z.id === zip.id) ? 'selected' : ''}`}>
+                            {selectedZips.some(z => z.id === zip.id) ? <FiCheck /> : <FiPlus />}
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {filteredZipOptions.length === 0 && (
+                  <div className="EmptyZipSearch">
+                    <FiPackage size={32} />
+                    <p>No zips found</p>
+                    <span>Try adjusting your search or filters</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {selectedZips.length > 0 ? (
+              <div className="SelectedZipsList">
+                <div className="SelectedHeader">
+                  <h5>Selected Zips ({selectedZips.length})</h5>
+                  <div className="TotalPreview">Total: ₹{calculateZipTotal().toFixed(2)}</div>
+                </div>
+                {selectedZips.map(zip => (
+                  <div className="ZipCard" key={zip.id}>
+                    <div className="ZipInfo">
+                      <div className="ZipType">{zip.zipType}</div>
+                      <div className="ZipDetails">
+                        <span>Size: {zip.size}</span>
+                        <span>Color: {zip.color}</span>
+                        {zip.isCustom && <span className="CustomBadge">Custom</span>}
+                      </div>
+                    </div>
+                    <div className="ZipControls">
+                      <div className="ControlGroup">
+                        <div className="ControlLabel">Quantity:</div>
+                        <div className="QuantityControl">
+                          <button 
+                            className="QtyBtn"
+                            onClick={() => updateZipQuantity(zip.id, zip.quantity - 1)}
+                            disabled={zip.quantity <= 1}
+                          >
+                            <FiMinus />
+                          </button>
+                          <input 
+                            className="QtyInput"
+                            type="number" 
+                            value={zip.quantity}
+                            onChange={(e) => updateZipQuantity(zip.id, parseInt(e.target.value))}
+                            min="1"
+                          />
+                          <button className="QtyBtn" onClick={() => updateZipQuantity(zip.id, zip.quantity + 1)}>
+                            <FiPlus />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="ControlGroup">
+                        <div className="ControlLabel">Pieces:</div>
+                        <div className="QuantityControl">
+                          <button 
+                            className="QtyBtn"
+                            onClick={() => updateZipPieces(zip.id, zip.pieces - 1)}
+                            disabled={zip.pieces <= 1}
+                          >
+                            <FiMinus />
+                          </button>
+                          <input 
+                            className="QtyInput"
+                            type="number" 
+                            value={zip.pieces}
+                            onChange={(e) => updateZipPieces(zip.id, parseInt(e.target.value))}
+                            min="1"
+                          />
+                          <button className="QtyBtn" onClick={() => updateZipPieces(zip.id, zip.pieces + 1)}>
+                            <FiPlus />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="ZipPrice">
+                        ₹{(zip.price * zip.quantity * zip.pieces).toFixed(2)}
+                        <button className="RemoveZipBtn" onClick={() => removeZip(zip.id)}>
+                          <FiTrash2 />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                <div className="ZipTotalCard">
+                  <div className="TotalLabel">Total Amount</div>
+                  <div className="TotalAmount">₹{calculateZipTotal().toFixed(2)}</div>
+                </div>
+              </div>
+            ) : (
+              <div className="EmptyZipState">
+                <FiPackage size={48} />
+                <p>No zips selected yet</p>
+                <span>Browse available zips or add black shades to get started</span>
+              </div>
+            )}
+          </div>
+        </>
+      ) : (
+        !loading && !error && (
+          <div className="HintCard">
+            <FiInfo />
+            <span>
+              💡 Tip: If your spreadsheet has one tab per lot, name them like <code>Cutting Matrix — Lot 64003</code> or <code>Cutting Matrix - Lot 64003</code>. This component will find them automatically.
+            </span>
+          </div>
+        )
+      )}
+
+      {/* Issue dialog */}
+      <AnimatePresence>
+        {showIssueDialog && (
+          <>
+            <motion.div className="Backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={closeIssueDialog} />
+            <motion.div
+              className="Dialog"
+              role="dialog"
+              aria-modal="true"
+              initial={{ opacity: 0, y: 16, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 16, scale: 0.98 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="DialogHeader">
+                <h3><FiPrinter /> Generate Issue PDF</h3>
+                <button className="IconBtn" onClick={closeIssueDialog} aria-label="Close"><FiX /></button>
+              </div>
+
+              <label className="Field">
+                <div className="FieldLabel"><FiCalendar /> Date of Issue</div>
+                <input type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} />
+              </label>
+
+              <label className="Field">
+                <div className="FieldLabel"><FiUser /> Supervisor</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8 }}>
+                  <input
+                    list="supervisorList"
+                    placeholder="Enter supervisor name"
+                    value={supervisor}
+                    onChange={(e) => setSupervisor(titleCase(e.target.value))}
+                  />
+                  {typedIsNewSupervisor && (
+                    <button
+                      type="button"
+                      onClick={() => addSupervisorToOptions(supervisor)}
+                      title="Add to suggestions"
+                      style={{
+                        whiteSpace: 'nowrap',
+                        borderRadius: 10,
+                        border: '2px solid #e2e8f0',
+                        background: '#fff',
+                        color: '#475569',
+                        fontWeight: 600,
+                        padding: '10px 12px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      + Add
+                    </button>
+                  )}
+                </div>
+                <datalist id="supervisorList">
+                  {supervisorOptions.map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
+              </label>
+
+              {selectedZips.length > 0 && (
+                <div className="ZipSummary">
+                  <div className="SummaryLabel">Selected Zips:</div>
+                  <div className="ZipList">
+                    {selectedZips.map(zip => (
+                      <div className="ZipSummaryItem" key={zip.id}>
+                        {zip.zipType} - {zip.color} (₹{zip.price} × {zip.quantity} × {zip.pieces})
+                      </div>
+                    ))}
+                  </div>
+                  <div className="TotalSummary">
+                    Total: ₹{calculateZipTotal().toFixed(2)}
+                  </div>
+                </div>
+              )}
+
+              {dialogError && (
+                <div className="InlineError">
+                  <FiAlertTriangle />
+                  <span>{dialogError}</span>
+                </div>
+              )}
+
+              <div className="DialogActions">
+                <motion.button className="BaseBtn GhostBtn" type="button" whileTap={{ scale: 0.98 }} onClick={closeIssueDialog} disabled={confirming}>Cancel</motion.button>
+                <motion.button className="BaseBtn PrimaryBtn" type="button" whileTap={{ scale: 0.98 }} onClick={handleConfirmIssue} disabled={confirming} title="Generate PDF">
+                  {confirming ? <div className="Spinner"></div> : <><FiDownload /> Generate PDF</> }
+                </motion.button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
