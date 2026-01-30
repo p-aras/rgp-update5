@@ -13,6 +13,17 @@ const RANGE_A1 = "SHEET1!A1:C";
 const API_KEY = "AIzaSyAomDFBkOySlIxKWSKGHe6ATv9gvaBr7uk";
 
 /** =========================
+ * Local Storage Keys
+ * ========================= */
+const LOCAL_STORAGE_KEYS = {
+  SHADE_ENABLED: "po_shade_enabled",
+  DESCRIPTIONS: "po_descriptions",
+  SHADES: "po_shades",
+  GST_ENABLED: "po_gst_enabled",
+  GST_PERCENTAGE: "po_gst_percentage"
+};
+
+/** =========================
  * utils
  * ========================= */
 const fmtMoney = (n) =>
@@ -24,17 +35,24 @@ const fmtMoney = (n) =>
 // Enhanced PO Number Generation with timestamp for guaranteed uniqueness
 function makeUniquePoNumber() {
   const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
+  // Get time components in HHMMSS format
+  const hours = String(now.getHours()).padStart(2, "0");
+  const minutes = String(now.getMinutes()).padStart(2, "0");
+  const seconds = String(now.getSeconds()).padStart(2, "0");
   
-  // Use last 4 digits of timestamp for absolute uniqueness
-  const timestampPart = String(now.getTime()).slice(-4);
-  
-  return `PO-${y}${m}${d}-${timestampPart}`;
+  // Combine to create PO-HHMMSS format (e.g., PO-064859)
+  return `PO-${hours}${minutes}${seconds}`;
 }
 
-const blankRow = () => ({ department: "", description: "", uom: "", qty: 0, rate: 0 });
+
+const blankRow = () => ({ 
+  department: "", 
+  description: "", 
+  shade: "", 
+  uom: "", 
+  qty: 0, 
+  rate: 0 
+});
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const nowTime = () => {
   const d = new Date();
@@ -119,25 +137,117 @@ function buildPoQrUrls({ base = WEB_APP_BASE, poNo, orderDate, expectedDate, sup
 }
 
 /** =========================
- * PDF (Same as before)
+ * Local Storage Utilities - FIXED VERSION
  * ========================= */
+function getLocalStorageItem(key, defaultValue) {
+  try {
+    const item = localStorage.getItem(key);
+    return item ? JSON.parse(item) : defaultValue;
+  } catch (e) {
+    console.error(`Error reading ${key} from localStorage:`, e);
+    return defaultValue;
+  }
+}
+
+function setLocalStorageItem(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (e) {
+    console.error(`Error saving ${key} to localStorage:`, e);
+  }
+}
+
+// NEW: Debounced save function to prevent saving partial words
+let saveDescriptionTimeout = null;
+let saveShadeTimeout = null;
+
+function saveDescriptionWithDebounce(description) {
+  if (!description || !description.trim()) return;
+  
+  // Clear previous timeout
+  if (saveDescriptionTimeout) {
+    clearTimeout(saveDescriptionTimeout);
+  }
+  
+  // Set new timeout to save after 1.5 seconds of inactivity
+  saveDescriptionTimeout = setTimeout(() => {
+    const trimmedValue = description.trim();
+    if (trimmedValue.length < 2) return; // Don't save very short entries
+    
+    const savedItems = getLocalStorageItem(LOCAL_STORAGE_KEYS.DESCRIPTIONS, []);
+    if (!savedItems.includes(trimmedValue)) {
+      const updatedItems = [trimmedValue, ...savedItems.filter(item => item !== trimmedValue)];
+      // Keep only last 50 items to avoid too many suggestions
+      setLocalStorageItem(LOCAL_STORAGE_KEYS.DESCRIPTIONS, updatedItems.slice(0, 50));
+    }
+    saveDescriptionTimeout = null;
+  }, 1500); // 1.5 second delay
+}
+
+function saveShadeWithDebounce(shade) {
+  if (!shade || !shade.trim()) return;
+  
+  // Clear previous timeout
+  if (saveShadeTimeout) {
+    clearTimeout(saveShadeTimeout);
+  }
+  
+  // Set new timeout to save after 1.5 seconds of inactivity
+  saveShadeTimeout = setTimeout(() => {
+    const trimmedValue = shade.trim();
+    if (trimmedValue.length < 2) return; // Don't save very short entries
+    
+    const savedItems = getLocalStorageItem(LOCAL_STORAGE_KEYS.SHADES, []);
+    if (!savedItems.includes(trimmedValue)) {
+      const updatedItems = [trimmedValue, ...savedItems.filter(item => item !== trimmedValue)];
+      // Keep only last 50 items to avoid too many suggestions
+      setLocalStorageItem(LOCAL_STORAGE_KEYS.SHADES, updatedItems.slice(0, 50));
+    }
+    saveShadeTimeout = null;
+  }, 1500); // 1.5 second delay
+}
+
+// Manual save function for blur event
+function saveDescriptionOnBlur(description) {
+  if (!description || !description.trim()) return;
+  const trimmedValue = description.trim();
+  if (trimmedValue.length < 2) return;
+  
+  const savedItems = getLocalStorageItem(LOCAL_STORAGE_KEYS.DESCRIPTIONS, []);
+  if (!savedItems.includes(trimmedValue)) {
+    const updatedItems = [trimmedValue, ...savedItems.filter(item => item !== trimmedValue)];
+    setLocalStorageItem(LOCAL_STORAGE_KEYS.DESCRIPTIONS, updatedItems.slice(0, 50));
+  }
+}
+
+function saveShadeOnBlur(shade) {
+  if (!shade || !shade.trim()) return;
+  const trimmedValue = shade.trim();
+  if (trimmedValue.length < 2) return;
+  
+  const savedItems = getLocalStorageItem(LOCAL_STORAGE_KEYS.SHADES, []);
+  if (!savedItems.includes(trimmedValue)) {
+    const updatedItems = [trimmedValue, ...savedItems.filter(item => item !== trimmedValue)];
+    setLocalStorageItem(LOCAL_STORAGE_KEYS.SHADES, updatedItems.slice(0, 50));
+  }
+}
+
 /** =========================
- * PDF - FIXED VERSION with proper page break handling
- * ========================= */
-/** =========================
- * PDF - FIXED: Bottom section only on last page
- * ========================= */
-/** =========================
- * PDF - FIXED: Header and footer on every page, no overlap
- * ========================= */
-/** =========================
- * PDF - FIXED: Header at top, border on every page, no overlap
+ * PDF - UPDATED VERSION with GST support
  * ========================= */
 function generatePurchaseOrderPDF({ payload, options = {} }) {
-  const { qrGateImage = null, qrRecvImage = null, qrSide = 96 } = options;
-  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  const { 
+    qrGateImage = null, 
+    qrRecvImage = null, 
+    qrSide = 96, 
+    shadeEnabled = false,
+    gstEnabled = false,
+    gstPercentage = 0
+  } = options;
+  
+  const doc = new jsPDF({ unit: "pt", format: "a3" });
   doc.setFont("helvetica", "normal");
-  doc.setLineWidth(0.6);
+  doc.setLineWidth(0.8); // Increased line width for darker borders
 
   // ---- Page dimensions
   const page = { 
@@ -153,12 +263,28 @@ function generatePurchaseOrderPDF({ payload, options = {} }) {
   const normal = () => doc.setFont(undefined, "normal");
   const text = (t, x, y, opt = {}) => doc.text(String(t ?? ""), x, y, opt);
   const rtext = (t, x, y, opt = {}) => text(t, x, y, { align: "right", ...opt });
-  const line = (x1, y1, x2, y2) => doc.line(x1, y1, x2, y2);
+  const ctext = (t, x, y, opt = {}) => text(t, x, y, { align: "center", ...opt });
+  const line = (x1, y1, x2, y2) => {
+    doc.setDrawColor(0, 0, 0); // Set line color to black
+    doc.line(x1, y1, x2, y2);
+  };
   const wrap = (str, w) => doc.splitTextToSize(String(str || ""), w);
   const money = (n) =>
     (Number.isFinite(+n) ? +n : 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const roundRect = (x, y, w, h, r = 7, style = "S") =>
-    doc.roundedRect ? doc.roundedRect(x, y, w, h, r, r, style) : doc.rect(x, y, w, h, style);
+  const roundRect = (x, y, w, h, r = 7, style = "S") => {
+    doc.setDrawColor(0, 0, 0); // Set border color to black
+    if (doc.roundedRect) {
+      return doc.roundedRect(x, y, w, h, r, r, style);
+    } else {
+      return doc.rect(x, y, w, h, style);
+    }
+  };
+
+  // Helper function to draw rectangle with black border
+  const drawRect = (x, y, w, h, style = "S") => {
+    doc.setDrawColor(0, 0, 0); // Set border color to black
+    doc.rect(x, y, w, h, style);
+  };
 
   // ---- Layout constants
   const SIG_H = 92;
@@ -183,6 +309,7 @@ function generatePurchaseOrderPDF({ payload, options = {} }) {
       
       // Add new page with border
       doc.addPage();
+      doc.setDrawColor(0, 0, 0); // Set border color to black
       roundRect(16, 16, page.w - 32, page.h - 32, 8, "S"); // Draw border
       
       // Reset Y position and draw header
@@ -227,8 +354,34 @@ function generatePurchaseOrderPDF({ payload, options = {} }) {
     const bigW = colW * 2 + page.gap;
     roundRect(x2, blockTop, bigW, BOTTOM_QR_H, 7, "S");
     setSize(10);
-    bold(); text("REMARKS", x2 + 10, blockTop + 14); normal();
+    bold(); ctext("REMARKS", x2 + bigW / 2, blockTop + 14); normal();
     line(x2 + 10, blockTop + 18, x2 + bigW - 10, blockTop + 18);
+    
+    // Add remarks text if available - PROPERLY CENTERED
+    if (payload.meta?.remarks && payload.meta.remarks.trim() !== "") {
+      const remarksLines = doc.splitTextToSize(payload.meta.remarks, bigW - 60); // More padding for centering
+      
+      // Calculate starting Y position to center vertically
+      const totalTextHeight = remarksLines.length * 12;
+      const boxCenterY = blockTop + BOTTOM_QR_H / 2;
+      const textStartY = boxCenterY - totalTextHeight / 2 + 6; // Adjust for better centering
+      
+      // Ensure text doesn't start too high
+      const minStartY = blockTop + 28;
+      const actualStartY = Math.max(textStartY, minStartY);
+      
+      let ry = actualStartY;
+      remarksLines.forEach(lineText => {
+        if (ry < blockTop + BOTTOM_QR_H - 10) { // Ensure text stays within box
+          ctext(lineText.trim(), x2 + bigW / 2, ry);
+          ry += 12;
+        }
+      });
+    } else {
+      // Center "No remarks provided" both horizontally and vertically
+      const boxCenterY = blockTop + BOTTOM_QR_H / 2;
+      ctext("No remarks provided", x2 + bigW / 2, boxCenterY, { fontStyle: "italic", opacity: 0.5 });
+    }
 
     // Signatures (3 equal)
     [x1, x2, x3].forEach((x) => roundRect(x, sigTop, colW, SIG_H, 7, "S"));
@@ -255,7 +408,8 @@ function generatePurchaseOrderPDF({ payload, options = {} }) {
   // START PDF GENERATION
   // =========================
   
-  // Draw border on first page
+  // Draw border on first page with black color
+  doc.setDrawColor(0, 0, 0);
   roundRect(16, 16, page.w - 32, page.h - 32, 8, "S");
   
   // Draw header on first page
@@ -282,7 +436,7 @@ function generatePurchaseOrderPDF({ payload, options = {} }) {
       ["Order", [payload.meta?.orderDate, payload.meta?.orderTime].filter(Boolean).join(" ")],
       ...(payload.meta?.expectedDate ? [["Expected", payload.meta.expectedDate]] : []),
       ...(payload.meta?.leadTimeHuman ? [["Lead Time", payload.meta.leadTimeHuman]] : []),
-      ...(payload.meta?.supervisorName ? [["Supervisor", payload.meta.supervisorName]] : []),
+      ...(payload.meta?.supervisorName ? [["Authorized By", payload.meta.supervisorName]] : []),
     ];
     const metaH = 22 + mRows.length * 16 + 16;
 
@@ -302,14 +456,12 @@ function generatePurchaseOrderPDF({ payload, options = {} }) {
     
     // Check if we have space for top section
     if (needSpaceForContent(blockH)) {
-      // We're on a new page, but top section should only be on first page
-      // So we skip drawing top section on subsequent pages
       return;
     }
 
-    // Draw PO DETAILS
+    // Draw PO DETAILS with black border
     roundRect(x1, y, wPO, blockH, 7, "S");
-    setSize(10);
+    setSize(12);
     bold(); text("PO DETAILS", x1 + 12, y + 14); normal();
     line(x1 + 12, y + 18, x1 + wPO - 12, y + 18);
     let my = y + 30;
@@ -319,17 +471,17 @@ function generatePurchaseOrderPDF({ payload, options = {} }) {
       my += 16;
     });
 
-    // Draw SUPPLIER INFO
+    // Draw SUPPLIER INFO with black border
     roundRect(x2, y, wSup, blockH, 7, "S");
-    setSize(10);
+    setSize(12);
     bold(); text("SUPPLIER", x2 + 12, y + 14); normal();
     line(x2 + 12, y + 18, x2 + wSup - 12, y + 18);
     let sy = y + 30;
     supLines.forEach((ln) => { if (ln) { text(ln, x2 + supPad, sy); sy += 12; } });
 
-    // Draw GATE-IN SCANNER
+    // Draw GATE-IN SCANNER with black border
     roundRect(x3, y, wGate, blockH, 7, "S");
-    setSize(10);
+    setSize(11);
     bold(); text("GATE IN — SCAN (FORM)", x3 + 12, y + 14); normal();
     line(x3 + 12, y + 18, x3 + wGate - 12, y + 18);
     if (qrGateImage) {
@@ -342,11 +494,11 @@ function generatePurchaseOrderPDF({ payload, options = {} }) {
   })();
 
   // =========================
-  // TABLE SECTION
+  // TABLE SECTION - SIMPLIFIED COLUMN CALCULATION
   // =========================
   (function drawTable() {
     const x0 = page.m, innerW = page.w - 2 * page.m;
-    setSize(10); normal();
+    setSize(11); normal();
 
     const rows = (payload.rows || []).map((r, i) => {
       const qStr = (+r.qty || 0).toLocaleString();
@@ -356,46 +508,99 @@ function generatePurchaseOrderPDF({ payload, options = {} }) {
       return { ...r, _i: i, _qtyStr: qStr, _rateStr: rateStr, _amtStr: amtStr };
     });
 
-    const measureMax = (arr, key) => arr.reduce((m, r) => Math.max(m, doc.getTextWidth(String(r[key] || ""))), 0);
-    const MIN = { line: 28, department: 90, uom: 50, qty: 64, rate: 72, amount: 92 };
-
-    const qtyW = Math.max(MIN.qty, measureMax(rows, "_qtyStr") + 14);
-    const rateW = Math.max(MIN.rate, measureMax(rows, "_rateStr") + 14);
-    const amountW = Math.max(MIN.amount, measureMax(rows, "_amtStr") + 16);
-
-    const lineW = MIN.line, depW = MIN.department, uomW = MIN.uom;
-    const used = lineW + depW + uomW + qtyW + rateW + amountW;
-    const descW = Math.max(120, innerW - used);
-    const diff = innerW - (used + descW);
-    const adjAmountW = amountW + diff;
-
-    const cols = [
-      { key: "line", title: "#", w: lineW, align: "right" },
-      { key: "department", title: "DEPARTMENT", w: depW },
-      { key: "description", title: "DESCRIPTION", w: descW },
-      { key: "uom", title: "UOM", w: uomW, align: "center" },
-      { key: "qty", title: "QTY", w: qtyW, align: "right" },
-      { key: "rate", title: "RATE", w: rateW, align: "right" },
-      { key: "amount", title: "AMOUNT", w: adjAmountW, align: "right" },
+    // Calculate totals for width estimation
+    let totalSum = rows.reduce((sum, r) => sum + ((+r.qty || 0) * (+r.rate || 0)), 0);
+    const gstAmount = gstEnabled ? (totalSum * gstPercentage) / 100 : 0;
+    const grandTotal = totalSum + gstAmount;
+    
+    // SIMPLIFIED COLUMN WIDTH CALCULATION
+    // Fixed widths that work well for A3 (larger page)
+    const FIXED_WIDTHS = {
+      line: 40,        // Line number (increased for A3)
+      department: 120, // Department (increased for A3)
+      description: 250, // Description (adjustable)
+      shade: shadeEnabled ? 120 : 0, // Shade if enabled
+      uom: 60,         // Unit of measure
+      qty: 90,         // Quantity (increased for A3)
+      rate: 100,       // Rate (increased for A3)
+      amount: 140      // Amount (increased for A3 and totals)
+    };
+    
+    // Calculate total fixed width
+    let totalFixedWidth = 0;
+    if (shadeEnabled) {
+      totalFixedWidth = FIXED_WIDTHS.line + FIXED_WIDTHS.department + FIXED_WIDTHS.description + 
+                        FIXED_WIDTHS.shade + FIXED_WIDTHS.uom + FIXED_WIDTHS.qty + 
+                        FIXED_WIDTHS.rate + FIXED_WIDTHS.amount;
+    } else {
+      totalFixedWidth = FIXED_WIDTHS.line + FIXED_WIDTHS.department + FIXED_WIDTHS.description + 
+                        FIXED_WIDTHS.uom + FIXED_WIDTHS.qty + FIXED_WIDTHS.rate + FIXED_WIDTHS.amount;
+    }
+    
+    // Calculate description width adjustment
+    const widthDiff = innerW - totalFixedWidth;
+    let adjustedDescWidth = FIXED_WIDTHS.description;
+    
+    if (widthDiff > 0) {
+      // If there's extra space, add it to description
+      adjustedDescWidth += widthDiff;
+    } else if (widthDiff < 0) {
+      // If we need to reduce, take from description but keep minimum
+      adjustedDescWidth = Math.max(150, FIXED_WIDTHS.description + widthDiff);
+    }
+    
+    // Define columns based on shadeEnabled
+    const cols = shadeEnabled ? [
+      { key: "line", title: "#", w: FIXED_WIDTHS.line, align: "right" },
+      { key: "department", title: "DEPARTMENT", w: FIXED_WIDTHS.department },
+      { key: "description", title: "DESCRIPTION", w: adjustedDescWidth },
+      { key: "shade", title: "SHADE", w: FIXED_WIDTHS.shade },
+      { key: "uom", title: "UOM", w: FIXED_WIDTHS.uom, align: "center" },
+      { key: "qty", title: "QTY", w: FIXED_WIDTHS.qty, align: "right" },
+      { key: "rate", title: "RATE", w: FIXED_WIDTHS.rate, align: "right" },
+      { key: "amount", title: "AMOUNT", w: FIXED_WIDTHS.amount, align: "right" },
+    ] : [
+      { key: "line", title: "#", w: FIXED_WIDTHS.line, align: "right" },
+      { key: "department", title: "DEPARTMENT", w: FIXED_WIDTHS.department },
+      { key: "description", title: "DESCRIPTION", w: adjustedDescWidth },
+      { key: "uom", title: "UOM", w: FIXED_WIDTHS.uom, align: "center" },
+      { key: "qty", title: "QTY", w: FIXED_WIDTHS.qty, align: "right" },
+      { key: "rate", title: "RATE", w: FIXED_WIDTHS.rate, align: "right" },
+      { key: "amount", title: "AMOUNT", w: FIXED_WIDTHS.amount, align: "right" },
     ];
-    const xs = [x0]; cols.forEach((c, i) => xs.push(xs[i] + c.w));
+    
+    // Calculate column X positions
+    const xs = [x0];
+    let cumulativeX = x0;
+    for (let i = 0; i < cols.length; i++) {
+      cumulativeX += cols[i].w;
+      xs.push(cumulativeX);
+    }
 
-    const headerH = 26, baseH = 20;
+    const headerH = 30, baseH = 24; // Increased for A3
 
     // Draw table header
     const drawTableHeader = () => {
-      // Check if we need new page for header
       if (needSpaceForContent(headerH)) {
         // We're on a new page now
       }
       
-      doc.rect(x0, y, innerW, headerH);
-      setSize(10); bold();
+      // Draw table header with black border
+      doc.setDrawColor(0, 0, 0);
+      drawRect(x0, y, innerW, headerH);
+      setSize(12); bold();
       cols.forEach((c, i) => {
-        const cx = c.align === "right" ? xs[i + 1] - 6 : c.align === "center" ? (xs[i] + xs[i + 1]) / 2 : xs[i] + 6;
-        const opt = c.align === "right" ? { align: "right" } : c.align === "center" ? { align: "center" } : {};
-        text(c.title, cx, y + 17, opt);
-        if (i > 0) line(xs[i], y, xs[i], y + headerH);
+        const cx = c.align === "right" ? xs[i + 1] - 10 : 
+                   c.align === "center" ? (xs[i] + xs[i + 1]) / 2 : 
+                   xs[i] + 10;
+        const opt = c.align === "right" ? { align: "right" } : 
+                    c.align === "center" ? { align: "center" } : 
+                    {};
+        text(c.title, cx, y + 20, opt);
+        if (i > 0) {
+          doc.setDrawColor(0, 0, 0);
+          line(xs[i], y, xs[i], y + headerH);
+        }
       });
       normal(); 
       y += headerH;
@@ -403,25 +608,63 @@ function generatePurchaseOrderPDF({ payload, options = {} }) {
 
     // Draw single row
     const drawTableRow = (r, idx) => {
-      const descLines = doc.splitTextToSize(r.description || "", cols[2].w - 8);
-      const rowH = Math.max(baseH, descLines.length * 12 + 8);
+      const descLines = doc.splitTextToSize(r.description || "", cols[2].w - 20); // Reduced for padding
+      const shadeLines = shadeEnabled ? doc.splitTextToSize(r.shade || "", cols[3]?.w - 20 || 0) : [];
+      const rowH = Math.max(baseH, descLines.length * 14 + 10, shadeLines.length * 14 + 10);
       
-      // Check if we need new page for this row
       if (needSpaceForContent(rowH)) {
-        // We're on a new page, draw table header first
         drawTableHeader();
       }
       
-      doc.rect(x0, y, innerW, rowH);
-      for (let i = 1; i < xs.length - 1; i++) line(xs[i], y, xs[i], y + rowH);
-      const yy = y + 12;
-      rtext(r.line ?? idx + 1, xs[1] - 6, yy);
-      text(r.department || "", xs[1] + 6, yy);
-      descLines.forEach((ln, j) => text(ln, xs[2] + 6, yy + j * 12));
-      text(r.uom || "", (xs[3] + xs[4]) / 2, yy, { align: "center" });
-      rtext(r._qtyStr, xs[5] - 6, yy);
-      rtext(r._rateStr, xs[6] - 6, yy);
-      rtext(r._amtStr, xs[7] - 6, yy);
+      // Draw row with black border
+      doc.setDrawColor(0, 0, 0);
+      drawRect(x0, y, innerW, rowH);
+      for (let i = 1; i < xs.length - 1; i++) {
+        doc.setDrawColor(0, 0, 0);
+        line(xs[i], y, xs[i], y + rowH);
+      }
+      const yy = y + 16;
+      
+      // Draw cell contents with proper padding
+      let colIndex = 0;
+      
+      // Line #
+      rtext(r.line ?? idx + 1, xs[colIndex + 1] - 10, yy);
+      colIndex++;
+      
+      // Department
+      text(r.department || "", xs[colIndex] + 10, yy);
+      colIndex++;
+      
+      // Description
+      descLines.forEach((ln, j) => text(ln, xs[colIndex] + 10, yy + j * 14));
+      colIndex++;
+      
+      // Shade (if enabled)
+      if (shadeEnabled) {
+        if (shadeLines.length > 0) {
+          shadeLines.forEach((ln, j) => text(ln, xs[colIndex] + 10, yy + j * 14));
+        } else {
+          text(r.shade || "", xs[colIndex] + 10, yy);
+        }
+        colIndex++;
+      }
+      
+      // UOM
+      text(r.uom || "", (xs[colIndex] + xs[colIndex + 1]) / 2, yy, { align: "center" });
+      colIndex++;
+      
+      // Quantity
+      rtext(r._qtyStr, xs[colIndex + 1] - 10, yy);
+      colIndex++;
+      
+      // Rate
+      rtext(r._rateStr, xs[colIndex + 1] - 10, yy);
+      colIndex++;
+      
+      // Amount
+      rtext(r._amtStr, xs[colIndex + 1] - 10, yy);
+      
       y += rowH;
       return (+r.qty || 0) * (+r.rate || 0);
     };
@@ -429,24 +672,54 @@ function generatePurchaseOrderPDF({ payload, options = {} }) {
     // Draw initial table header
     drawTableHeader();
     
-    // Draw all rows
-    let totalSum = 0;
+    // Reset totalSum calculation
+    totalSum = 0;
     rows.forEach((r, i) => {
       totalSum += drawTableRow(r, i);
     });
     
-    // Draw total row
-    const totalH = 26;
-    if (needSpaceForContent(totalH)) {
-      // We're on a new page, need to draw table header first
+    // Draw total rows with GST calculation
+    const finalGstAmount = gstEnabled ? (totalSum * gstPercentage) / 100 : 0;
+    const finalGrandTotal = totalSum + finalGstAmount;
+    
+    // Subtotal row
+    const subtotalH = 26;
+    if (needSpaceForContent(subtotalH + (gstEnabled ? 26 : 0) + 30)) {
       drawTableHeader();
     }
     
-    doc.rect(x0, y, innerW, totalH);
+    doc.setDrawColor(0, 0, 0);
+    drawRect(x0, y, innerW, subtotalH);
+    doc.setDrawColor(0, 0, 0);
+    line(xs[xs.length - 2], y, xs[xs.length - 2], y + subtotalH);
+    setSize(12); bold();
+    text("SUBTOTAL", x0 + 10, y + 18);
+    rtext(money(totalSum), xs[xs.length - 1] - 10, y + 18);
+    normal(); 
+    y += subtotalH;
+    
+    // GST row (if enabled)
+    if (gstEnabled) {
+      doc.setDrawColor(0, 0, 0);
+      drawRect(x0, y, innerW, subtotalH);
+      doc.setDrawColor(0, 0, 0);
+      line(xs[xs.length - 2], y, xs[xs.length - 2], y + subtotalH);
+      setSize(12); bold();
+      text(`GST ${gstPercentage}%`, x0 + 10, y + 18);
+      rtext(money(finalGstAmount), xs[xs.length - 1] - 10, y + 18);
+      normal(); 
+      y += subtotalH;
+    }
+    
+    // Grand Total row
+    const totalH = 30;
+    doc.setDrawColor(0, 0, 0);
+    drawRect(x0, y, innerW, totalH);
+    doc.setDrawColor(0, 0, 0);
     line(xs[xs.length - 2], y, xs[xs.length - 2], y + totalH);
-    setSize(11); bold();
-    text("TOTAL", x0 + 8, y + 17);
-    rtext(money(totalSum), xs[7] - 8, y + 17);
+    setSize(14); bold();
+    text(gstEnabled ? "GRAND TOTAL" : "TOTAL", x0 + 10, y + 20);
+    rtext(money(finalGrandTotal), xs[xs.length - 1] - 12, y + 20);
     normal(); 
     y += totalH;
   })();
@@ -454,11 +727,11 @@ function generatePurchaseOrderPDF({ payload, options = {} }) {
   // =========================
   // FINAL FOOTER
   // =========================
-  // Draw footer on the last page
   drawFooterOnPage();
 
   return doc;
 }
+
 /** =========================
  * POST helper — strict ok/json.ok handling + 429 backoff
  * ========================= */
@@ -526,6 +799,27 @@ export default function PurchaseOrderForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSupervisorDialog, setShowSupervisorDialog] = useState(false);
   const [supervisorName, setSupervisorName] = useState("");
+  const [remarks, setRemarks] = useState("");
+  
+  // New state for shade feature
+  const [shadeEnabled, setShadeEnabled] = useState(() => 
+    getLocalStorageItem(LOCAL_STORAGE_KEYS.SHADE_ENABLED, false)
+  );
+  const [savedDescriptions, setSavedDescriptions] = useState(() => 
+    getLocalStorageItem(LOCAL_STORAGE_KEYS.DESCRIPTIONS, [])
+  );
+  const [savedShades, setSavedShades] = useState(() => 
+    getLocalStorageItem(LOCAL_STORAGE_KEYS.SHADES, [])
+  );
+  
+  // New state for GST feature
+  const [gstEnabled, setGstEnabled] = useState(() => 
+    getLocalStorageItem(LOCAL_STORAGE_KEYS.GST_ENABLED, false)
+  );
+  const [gstPercentage, setGstPercentage] = useState(() => 
+    getLocalStorageItem(LOCAL_STORAGE_KEYS.GST_PERCENTAGE, 18)
+  );
+  const [showGstDialog, setShowGstDialog] = useState(false);
 
   const [sheetRows, setSheetRows] = useState([]);
   const [loadingSheet, setLoadingSheet] = useState(false);
@@ -533,9 +827,35 @@ export default function PurchaseOrderForm({
 
   const printableRef = useRef(null);
 
-  const UOM_OPTIONS = [
-    "PCS","SET","PAIR","DOZEN","KG","GRAM","LTR","ML","MTR","CM","MM","ROLL","BUNDLE","BOX","PACK","SFT","SQM","SQFT","HOUR","DAY","JOB"
-  ];
+const UOM_OPTIONS = [
+  // Count
+  "PCS","SET","PAIR","DOZEN","GROSS","NOS","UNIT",
+
+  // Weight
+  "MG","GRAM","KG","QUINTAL","TON",
+
+  // Length
+  "MM","CM","MTR","INCH","FEET","YARD","KM",
+
+  // Area
+  "SQMM","SQCM","SQM","SQFT","SQYD","SFT",
+
+  // Volume
+  "ML","LTR","KL","CC","CUM",
+
+  // Packaging
+  "ROLL","BUNDLE","BOX","PACK","BAG","SACK","CARTON","PALLET",
+
+  // Fabric / Garment specific
+  "MTRS","KGS","CONES","HANK","BALE",
+
+  // Time / Work
+  "SEC","MIN","HOUR","DAY","WEEK","MONTH",
+
+  // Job / Service
+  "JOB","SHIFT","LOT","ORDER","LOAD"
+];
+
 
   useEffect(() => {
     let mounted = true;
@@ -553,6 +873,23 @@ export default function PurchaseOrderForm({
     return () => {
       mounted = false;
     };
+  }, []);
+
+  // Save shade enabled state to localStorage
+  useEffect(() => {
+    setLocalStorageItem(LOCAL_STORAGE_KEYS.SHADE_ENABLED, shadeEnabled);
+  }, [shadeEnabled]);
+
+  // Save GST state to localStorage
+  useEffect(() => {
+    setLocalStorageItem(LOCAL_STORAGE_KEYS.GST_ENABLED, gstEnabled);
+    setLocalStorageItem(LOCAL_STORAGE_KEYS.GST_PERCENTAGE, gstPercentage);
+  }, [gstEnabled, gstPercentage]);
+
+  // Load saved descriptions and shades on mount
+  useEffect(() => {
+    setSavedDescriptions(getLocalStorageItem(LOCAL_STORAGE_KEYS.DESCRIPTIONS, []));
+    setSavedShades(getLocalStorageItem(LOCAL_STORAGE_KEYS.SHADES, []));
   }, []);
 
   const departments = useMemo(() => {
@@ -586,14 +923,25 @@ export default function PurchaseOrderForm({
   const totals = useMemo(() => {
     let sub = 0;
     rows.forEach((r) => (sub += rowAmount(r)));
-    const gross = sub;
-    return { sub, discountTotal: 0, taxTotal: 0, gross, payable: gross, roundAdj: 0 };
-  }, [rows]);
+    const gstAmount = gstEnabled ? (sub * gstPercentage) / 100 : 0;
+    const grandTotal = sub + gstAmount;
+    return { 
+      sub, 
+      discountTotal: 0, 
+      taxTotal: 0, 
+      gstAmount,
+      gstPercentage: gstEnabled ? gstPercentage : 0,
+      gross: sub,
+      payable: grandTotal, 
+      grandTotal,
+      roundAdj: 0 
+    };
+  }, [rows, gstEnabled, gstPercentage]);
 
-const orderDT    = toDate(orderDate, orderTime);
-const expectedDT = toDate(expectedDate, expectedTime);
-const leadMs     = orderDT && expectedDT ? expectedDT - orderDT : null;
-const leadHuman  = humanDuration(leadMs);
+  const orderDT    = toDate(orderDate, orderTime);
+  const expectedDT = toDate(expectedDate, expectedTime);
+  const leadMs     = orderDT && expectedDT ? expectedDT - orderDT : null;
+  const leadHuman  = humanDuration(leadMs);
 
   const updateRow = (idx, patch) => {
     setRows((prev) => {
@@ -604,6 +952,7 @@ const leadHuman  = humanDuration(leadMs);
       return next;
     });
   };
+
   const addRow = () => setRows((r) => [...r, blankRow()]);
   const removeRow = (idx) =>
     setRows((r) => (r.length === 1 ? [blankRow()] : r.filter((_, i) => i !== idx)));
@@ -637,7 +986,11 @@ const leadHuman  = humanDuration(leadMs);
       leadTimeMs: leadMs,
       leadTimeHuman: leadHuman || null,
       supervisorName: extraMeta.supervisorName || null,
+      remarks: remarks || "",
       createdAt: new Date().toISOString(),
+      shadeEnabled,
+      gstEnabled,
+      gstPercentage: gstEnabled ? gstPercentage : 0,
     },
     company,
     supplierName,
@@ -645,6 +998,7 @@ const leadHuman  = humanDuration(leadMs);
       line: i + 1,
       department: r.department,
       description: r.description,
+      shade: r.shade || "", // Include shade in rows
       uom: r.uom,
       qty: +r.qty || 0,
       rate: +r.rate || 0,
@@ -654,25 +1008,25 @@ const leadHuman  = humanDuration(leadMs);
     notes: "",
   });
 
-async function handleSave() {
-  const errs = validate();
-  if (errs.length) return alert(errs.join("\n"));
-  const payload = makePayload();
-  const res = await postPOToSheet(WEB_APP_BASE, payload);
-  if (!res.ok) {
-    const msg =
-      res.json?.error ||
-      (res.status === 409 ? "Duplicate PO number. Please change PO Number." : "") ||
-      res.error ||
-      `HTTP ${res.status || "?"}`;
-    return alert(`Could not save PO.\n${msg}`);
+  async function handleSave() {
+    const errs = validate();
+    if (errs.length) return alert(errs.join("\n"));
+    const payload = makePayload();
+    const res = await postPOToSheet(WEB_APP_BASE, payload);
+    if (!res.ok) {
+      const msg =
+        res.json?.error ||
+        (res.status === 409 ? "Duplicate PO number. Please change PO Number." : "") ||
+        res.error ||
+        `HTTP ${res.status || "?"}`;
+      return alert(`Could not save PO.\n${msg}`);
+    }
+    onSave(payload);
+    alert(`Saved PO ${payload.meta.poNumber} to Google Sheet ✅`);
+    
+    // ✅ Optional: Reset form after save too
+    resetForm();
   }
-  onSave(payload);
-  alert(`Saved PO ${payload.meta.poNumber} to Google Sheet ✅`);
-  
-  // ✅ Optional: Reset form after save too
-  resetForm();
-}
 
   const handleOpenSubmitDialog = () => {
     const errs = validate();
@@ -681,69 +1035,76 @@ async function handleSave() {
   };
 
   /** SUBMIT: save to sheet → build QR (action=gate/receive) → PDF */
-/** SUBMIT: save to sheet → build QR (action=gate/receive) → PDF */
-async function handleConfirmSubmit() {
-  if (isSubmitting) return;
-  const name = (supervisorName || "").trim();
-  if (!name) return alert("Please enter Supervisor Name.");
+  async function handleConfirmSubmit() {
+    if (isSubmitting) return;
+    const name = (supervisorName || "").trim();
+    if (!name) return alert("Please enter Supervisor Name.");
 
-  setIsSubmitting(true);
-  setShowSupervisorDialog(false);
+    setIsSubmitting(true);
+    setShowSupervisorDialog(false);
 
-  try {
-    const payload = makePayload({ supervisorName: name });
-    const res = await postPOToSheet(WEB_APP_BASE, payload);
-    if (!res.ok) {
-      const msg =
-        res.json?.error ||
-        (res.status === 409 ? "Duplicate PO number. Please change PO Number." : "") ||
-        `HTTP ${res.status || "?"}`;
-      throw new Error(msg);
+    try {
+      const payload = makePayload({ supervisorName: name });
+      const res = await postPOToSheet(WEB_APP_BASE, payload);
+      if (!res.ok) {
+        const msg =
+          res.json?.error ||
+          (res.status === 409 ? "Duplicate PO number. Please change PO Number." : "") ||
+          `HTTP ${res.status || "?"}`;
+        throw new Error(msg);
+      }
+
+      const poNo = payload.meta.poNumber;
+
+      const { gateUrl, recvUrl } = buildPoQrUrls({
+        base: WEB_APP_BASE,
+        poNo,
+        orderDate: payload.meta.orderDate,
+        expectedDate: payload.meta.expectedDate,
+        supervisorName: name,
+      });
+
+      const [gateQR, recvQR] = await Promise.all([
+        toDataURL_QR(gateUrl, 320),
+        toDataURL_QR(recvUrl, 320),
+      ]);
+
+      const doc = generatePurchaseOrderPDF({
+        payload,
+        options: { 
+          qrGateImage: gateQR, 
+          qrRecvImage: recvQR, 
+          qrSide: 96,
+          shadeEnabled,
+          gstEnabled,
+          gstPercentage: gstEnabled ? gstPercentage : 0
+        },
+      });
+      downloadPdfBlob(doc, `${payload.meta.poNumber}.pdf`);
+      onSubmitForApproval(payload);
+      
+      // ✅ RESET ALL FIELDS AFTER SUCCESSFUL SUBMISSION
+      resetForm();
+      
+    } catch (e) {
+      alert(e.message || String(e));
+    } finally {
+      setIsSubmitting(false);
     }
-
-    const poNo = payload.meta.poNumber;
-
-    const { gateUrl, recvUrl } = buildPoQrUrls({
-      base: WEB_APP_BASE,
-      poNo,
-      orderDate: payload.meta.orderDate,
-      expectedDate: payload.meta.expectedDate,
-      supervisorName: name,
-    });
-
-    const [gateQR, recvQR] = await Promise.all([
-      toDataURL_QR(gateUrl, 320),
-      toDataURL_QR(recvUrl, 320),
-    ]);
-
-    const doc = generatePurchaseOrderPDF({
-      payload,
-      options: { qrGateImage: gateQR, qrRecvImage: recvQR, qrSide: 96 },
-    });
-    downloadPdfBlob(doc, `${payload.meta.poNumber}.pdf`);
-    onSubmitForApproval(payload);
-    
-    // ✅ RESET ALL FIELDS AFTER SUCCESSFUL SUBMISSION
-    resetForm();
-    
-  } catch (e) {
-    alert(e.message || String(e));
-  } finally {
-    setIsSubmitting(false);
   }
-}
 
-// ✅ ADD THIS FUNCTION: Reset all fields to blank
-const resetForm = () => {
-  setPoNumber(makeUniquePoNumber()); // Generate new PO number
-  setOrderDate(todayISO()); // Reset to today's date
-  setOrderTime(nowTime()); // Reset to current time
-  setExpectedDate(""); // Blank expected date
-  setExpectedTime(""); // Blank expected time
-  setSupplierName(""); // Blank supplier name
-  setRows([blankRow()]); // Reset to one blank row
-  setSupervisorName(""); // Blank supervisor name
-};
+  // ✅ ADD THIS FUNCTION: Reset all fields to blank
+  const resetForm = () => {
+    setPoNumber(makeUniquePoNumber()); // Generate new PO number
+    setOrderDate(todayISO()); // Reset to today's date
+    setOrderTime(nowTime()); // Reset to current time
+    setExpectedDate(""); // Blank expected date
+    setExpectedTime(""); // Blank expected time
+    setSupplierName(""); // Blank supplier name
+    setRows([blankRow()]); // Reset to one blank row
+    setSupervisorName(""); // Blank supervisor name
+    setRemarks(""); // Reset remarks
+  };
 
   /** PDF preview without saving — uses action=gate/receive URLs */
   async function handleDownloadPdf() {
@@ -763,13 +1124,74 @@ const resetForm = () => {
       toDataURL_QR(recvUrl, 320),
     ]);
 
-    const doc = generatePurchaseOrderPDF({ payload, options: { qrGateImage: gateQR, qrRecvImage: recvQR, qrSide: 96 } });
+    const doc = generatePurchaseOrderPDF({ 
+      payload, 
+      options: { 
+        qrGateImage: gateQR, 
+        qrRecvImage: recvQR, 
+        qrSide: 96,
+        shadeEnabled,
+        gstEnabled,
+        gstPercentage: gstEnabled ? gstPercentage : 0
+      } 
+    });
     downloadPdfBlob(doc, `${poNumber}.pdf`);
   }
 
   // Regenerate PO Number with new timestamp
   const regeneratePoNumber = () => {
     setPoNumber(makeUniquePoNumber());
+  };
+
+  // Toggle shade feature
+  const toggleShadeEnabled = () => {
+    const newState = !shadeEnabled;
+    setShadeEnabled(newState);
+    
+    // If disabling shade, clear shade values from all rows
+    if (!newState) {
+      setRows(rows.map(row => ({ ...row, shade: "" })));
+    }
+  };
+
+  // Toggle GST feature
+  const handleGstToggle = () => {
+    if (!gstEnabled) {
+      setShowGstDialog(true);
+    } else {
+      setGstEnabled(false);
+    }
+  };
+
+  const handleGstConfirm = () => {
+    if (!gstPercentage || gstPercentage <= 0 || gstPercentage > 100) {
+      alert("Please enter a valid GST percentage between 0.01 and 100");
+      return;
+    }
+    setGstEnabled(true);
+    setShowGstDialog(false);
+  };
+
+  // Handle description input change with debouncing
+  const handleDescriptionChange = (idx, value) => {
+    updateRow(idx, { description: value });
+    saveDescriptionWithDebounce(value);
+  };
+
+  // Handle shade input change with debouncing
+  const handleShadeChange = (idx, value) => {
+    updateRow(idx, { shade: value });
+    saveShadeWithDebounce(value);
+  };
+
+  // Handle back navigation
+  const handleBackNavigation = () => {
+    if (window.history.length > 1) {
+      window.history.back();
+    } else {
+      // If there's no history, redirect to home or previous page
+      window.location.href = "/";
+    }
   };
 
   function UomSelect({ value, onChange, disabled }) {
@@ -1031,16 +1453,22 @@ const resetForm = () => {
           border-radius: 50%;
         }
 
-        .form-input, .form-select {
+        .form-input, .form-select, .form-textarea {
           padding: 14px 16px;
           border: 2px solid #f1f5f9;
           border-radius: 12px;
           font-size: 15px;
           transition: all 0.2s ease;
           background: #f8fafc;
+          font-family: inherit;
         }
 
-        .form-input:focus, .form-select:focus {
+        .form-textarea {
+          min-height: 100px;
+          resize: vertical;
+        }
+
+        .form-input:focus, .form-select:focus, .form-textarea:focus {
           outline: none;
           border-color: #4f46e5;
           background: white;
@@ -1092,6 +1520,28 @@ const resetForm = () => {
         .total-amount {
           font-size: 32px;
           font-weight: 800;
+        }
+
+        .gst-breakdown {
+          background: rgba(255, 255, 255, 0.1);
+          border-radius: 12px;
+          padding: 16px;
+          margin-top: 12px;
+        }
+
+        .gst-line {
+          display: flex;
+          justify-content: space-between;
+          margin-bottom: 8px;
+          font-size: 14px;
+        }
+
+        .gst-line.total {
+          font-weight: 700;
+          font-size: 16px;
+          border-top: 1px solid rgba(255, 255, 255, 0.2);
+          padding-top: 12px;
+          margin-top: 12px;
         }
 
         .table-container {
@@ -1264,6 +1714,108 @@ const resetForm = () => {
           border: 1px solid #bae6fd;
         }
 
+        .shade-toggle, .gst-toggle {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 12px 16px;
+          background: #f8fafc;
+          border: 1px solid #e2e8f0;
+          border-radius: 12px;
+          margin-bottom: 12px;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .shade-toggle:hover, .gst-toggle:hover {
+          background: #f1f5f9;
+          border-color: #cbd5e1;
+        }
+
+        .shade-toggle.active, .gst-toggle.active {
+          background: #4f46e5;
+          border-color: #4f46e5;
+          color: white;
+        }
+
+        .shade-toggle-switch, .gst-toggle-switch {
+          position: relative;
+          width: 44px;
+          height: 24px;
+          background: #cbd5e1;
+          border-radius: 12px;
+          transition: all 0.3s ease;
+        }
+
+        .shade-toggle.active .shade-toggle-switch,
+        .gst-toggle.active .gst-toggle-switch {
+          background: rgba(255, 255, 255, 0.3);
+        }
+
+        .shade-toggle-switch::after, .gst-toggle-switch::after {
+          content: '';
+          position: absolute;
+          top: 2px;
+          left: 2px;
+          width: 20px;
+          height: 20px;
+          background: white;
+          border-radius: 50%;
+          transition: all 0.3s ease;
+        }
+
+        .shade-toggle.active .shade-toggle-switch::after,
+        .gst-toggle.active .gst-toggle-switch::after {
+          transform: translateX(20px);
+          background: #4f46e5;
+        }
+
+        .shade-toggle-label, .gst-toggle-label {
+          font-size: 14px;
+          font-weight: 600;
+        }
+
+        .saved-count, .gst-percentage {
+          font-size: 12px;
+          color: #64748b;
+          margin-left: auto;
+          background: white;
+          padding: 2px 8px;
+          border-radius: 10px;
+          border: 1px solid #e2e8f0;
+        }
+
+        .shade-toggle.active .saved-count,
+        .gst-toggle.active .gst-percentage {
+          background: rgba(255, 255, 255, 0.2);
+          border-color: rgba(255, 255, 255, 0.3);
+          color: white;
+        }
+
+        .clear-saved-btn {
+          padding: 6px 12px;
+          background: #fef2f2;
+          color: #dc2626;
+          border: 1px solid #fecaca;
+          border-radius: 8px;
+          font-size: 12px;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          margin-left: 8px;
+        }
+
+        .clear-saved-btn:hover {
+          background: #dc2626;
+          color: white;
+        }
+
+        .suggestions-info {
+          font-size: 12px;
+          color: #64748b;
+          margin-top: 4px;
+          font-style: italic;
+        }
+
         .modal-overlay {
           position: fixed;
           top: 0;
@@ -1320,6 +1872,55 @@ const resetForm = () => {
           justify-content: flex-end;
         }
 
+        .gst-input-container {
+          margin: 20px 0;
+        }
+
+        .gst-input-group {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .gst-input {
+          flex: 1;
+          padding: 12px 16px;
+          border: 2px solid #e2e8f0;
+          border-radius: 8px;
+          font-size: 16px;
+          text-align: center;
+        }
+
+        .gst-percent-symbol {
+          font-size: 16px;
+          font-weight: 600;
+          color: #4f46e5;
+        }
+
+        .gst-presets {
+          display: flex;
+          gap: 8px;
+          margin-top: 12px;
+        }
+
+        .gst-preset-btn {
+          flex: 1;
+          padding: 8px;
+          background: #f1f5f9;
+          border: 1px solid #e2e8f0;
+          border-radius: 6px;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          text-align: center;
+          font-size: 14px;
+        }
+
+        .gst-preset-btn:hover {
+          background: #4f46e5;
+          color: white;
+          border-color: #4f46e5;
+        }
+
         .print-only { display: none; }
 
         @media (max-width: 1024px) {
@@ -1348,6 +1949,9 @@ const resetForm = () => {
           .actions-grid {
             grid-template-columns: 1fr;
           }
+          .items-table {
+            min-width: 1200px;
+          }
         }
       `}</style>
 
@@ -1364,8 +1968,13 @@ const resetForm = () => {
           <div className="content-grid">
             {/* Sidebar Navigation */}
             <div className="sidebar">
+              {/* Added Back Button Section */}
               <div className="nav-section">
                 <div className="nav-title">Navigation</div>
+                <div className="nav-item" onClick={handleBackNavigation}>
+                  <div className="nav-icon">←</div>
+                  <span>Go Back</span>
+                </div>
                 <div className="nav-item active">
                   <div className="nav-icon">📋</div>
                   <span>PO Details</span>
@@ -1385,6 +1994,62 @@ const resetForm = () => {
                 <div style={{ padding: '12px 16px', background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
                   <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>Total Items</div>
                   <div style={{ fontSize: '18px', fontWeight: '700', color: '#1e293b' }}>{rows.length}</div>
+                </div>
+              </div>
+
+              <div className="nav-section">
+                <div className="nav-title">Features</div>
+                <div 
+                  className={`nav-item ${shadeEnabled ? 'active' : ''}`} 
+                  onClick={toggleShadeEnabled}
+                >
+                  <div className="nav-icon">🎨</div>
+                  <span>Shade Column</span>
+                  <span style={{ 
+                    marginLeft: 'auto', 
+                    fontSize: '12px', 
+                    background: shadeEnabled ? 'white' : '#e2e8f0',
+                    color: shadeEnabled ? '#4f46e5' : '#64748b',
+                    padding: '2px 8px',
+                    borderRadius: '10px'
+                  }}>
+                    {shadeEnabled ? 'ON' : 'OFF'}
+                  </span>
+                </div>
+                <div 
+                  className={`nav-item ${gstEnabled ? 'active' : ''}`} 
+                  onClick={handleGstToggle}
+                >
+                  <div className="nav-icon">💰</div>
+                  <span>GST Included</span>
+                  <span style={{ 
+                    marginLeft: 'auto', 
+                    fontSize: '12px', 
+                    background: gstEnabled ? 'white' : '#e2e8f0',
+                    color: gstEnabled ? '#4f46e5' : '#64748b',
+                    padding: '2px 8px',
+                    borderRadius: '10px'
+                  }}>
+                    {gstEnabled ? `${gstPercentage}%` : 'OFF'}
+                  </span>
+                </div>
+                <div className="nav-item" onClick={() => {
+                  const descCount = savedDescriptions.length;
+                  const shadeCount = savedShades.length;
+                  alert(`Saved Suggestions:\n\nDescriptions: ${descCount} items\nShades: ${shadeCount} items\n\nThese will appear in dropdowns when typing.`);
+                }}>
+                  <div className="nav-icon">💾</div>
+                  <span>Saved Suggestions</span>
+                  <span style={{ 
+                    marginLeft: 'auto', 
+                    fontSize: '12px', 
+                    background: '#e0e7ff',
+                    color: '#4f46e5',
+                    padding: '2px 8px',
+                    borderRadius: '10px'
+                  }}>
+                    {savedDescriptions.length + savedShades.length}
+                  </span>
                 </div>
               </div>
 
@@ -1437,7 +2102,7 @@ const resetForm = () => {
                       </button>
                     </div>
                     <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>
-                      Format: PO-YYYYMMDD-XXXX
+                        Format: PO-HHMMSS
                     </div>
                   </div>
 
@@ -1499,6 +2164,20 @@ const resetForm = () => {
                       {leadHuman && <span style={{ marginLeft: 'auto', fontSize: '12px', color: '#4f46e5' }}>⏱️</span>}
                     </div>
                   </div>
+
+                  <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                    <label className="form-label">Remarks</label>
+                    <textarea
+                      className="form-textarea"
+                      placeholder="Enter any special instructions, notes, or remarks for this purchase order"
+                      value={remarks}
+                      onChange={(e) => setRemarks(e.target.value)}
+                      rows={3}
+                    />
+                    <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>
+                      These remarks will appear in the PDF under the "REMARKS" section
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -1512,10 +2191,71 @@ const resetForm = () => {
                   </div>
                 </div>
 
+                {/* Feature Toggles */}
+                <div className="feature-toggles" style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
+                  {/* Shade Toggle */}
+                  <div 
+                    className={`shade-toggle ${shadeEnabled ? 'active' : ''}`}
+                    onClick={toggleShadeEnabled}
+                    style={{ flex: 1 }}
+                  >
+                    <div className="shade-toggle-switch"></div>
+                    <span className="shade-toggle-label">
+                      {shadeEnabled ? 'Shade Column Enabled' : 'Enable Shade Column'}
+                    </span>
+                    <span className="saved-count">
+                      {shadeEnabled ? `${savedShades.length} saved` : 'OFF'}
+                    </span>
+                  </div>
+
+                  {/* GST Toggle */}
+                  <div 
+                    className={`gst-toggle ${gstEnabled ? 'active' : ''}`}
+                    onClick={handleGstToggle}
+                    style={{ flex: 1 }}
+                  >
+                    <div className="gst-toggle-switch"></div>
+                    <span className="gst-toggle-label">
+                      {gstEnabled ? 'GST Included' : 'Add GST'}
+                    </span>
+                    <span className="gst-percentage">
+                      {gstEnabled ? `${gstPercentage}%` : 'OFF'}
+                    </span>
+                  </div>
+                </div>
+
+                {savedDescriptions.length > 0 && (
+                  <div className="suggestions-info">
+                    📝 You have {savedDescriptions.length} saved descriptions. They will appear as suggestions when typing.
+                  </div>
+                )}
+                {shadeEnabled && savedShades.length > 0 && (
+                  <div className="suggestions-info">
+                    🎨 You have {savedShades.length} saved shades. They will appear as suggestions when typing.
+                  </div>
+                )}
+
                 {/* Total Display */}
                 <div className="total-card">
                   <div className="total-label">TOTAL AMOUNT</div>
-                  <div className="total-amount">₹{fmtMoney(totals.gross)}</div>
+                  <div className="total-amount">₹{fmtMoney(totals.grandTotal)}</div>
+                  
+                  {gstEnabled && (
+                    <div className="gst-breakdown">
+                      <div className="gst-line">
+                        <span>Subtotal:</span>
+                        <span>₹{fmtMoney(totals.gross)}</span>
+                      </div>
+                      <div className="gst-line">
+                        <span>GST ({gstPercentage}%):</span>
+                        <span>₹{fmtMoney(totals.gstAmount)}</span>
+                      </div>
+                      <div className="gst-line total">
+                        <span>Grand Total:</span>
+                        <span>₹{fmtMoney(totals.grandTotal)}</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {loadingSheet && (
@@ -1538,6 +2278,7 @@ const resetForm = () => {
                         <th style={{ width: "40px" }}>#</th>
                         <th style={{ width: "160px" }}>Department</th>
                         <th>Description</th>
+                        {shadeEnabled && <th style={{ width: "120px" }}>Shade</th>}
                         <th style={{ width: "100px" }}>UOM</th>
                         <th style={{ width: "100px" }}>Qty</th>
                         <th style={{ width: "120px" }}>Rate (₹)</th>
@@ -1573,15 +2314,43 @@ const resetForm = () => {
                                 className="form-input"
                                 placeholder="Enter item description"
                                 value={r.description}
-                                onChange={(e) => updateRow(idx, { description: e.target.value })}
-                                list={`items-${idx}`}
+                                onChange={(e) => handleDescriptionChange(idx, e.target.value)}
+                                list={`desc-${idx}`}
+                                onBlur={(e) => {
+                                  saveDescriptionOnBlur(e.target.value);
+                                  setSavedDescriptions(getLocalStorageItem(LOCAL_STORAGE_KEYS.DESCRIPTIONS, []));
+                                }}
                               />
-                              <datalist id={`items-${idx}`}>
+                              <datalist id={`desc-${idx}`}>
+                                {savedDescriptions.map((desc, i) => (
+                                  <option key={`desc-${i}`} value={desc} />
+                                ))}
                                 {items.map((it) => (
                                   <option key={it} value={it} />
                                 ))}
                               </datalist>
                             </td>
+                            {shadeEnabled && (
+                              <td>
+                                <input
+                                  type="text"
+                                  className="form-input"
+                                  placeholder="Enter shade"
+                                  value={r.shade}
+                                  onChange={(e) => handleShadeChange(idx, e.target.value)}
+                                  list={`shade-${idx}`}
+                                  onBlur={(e) => {
+                                    saveShadeOnBlur(e.target.value);
+                                    setSavedShades(getLocalStorageItem(LOCAL_STORAGE_KEYS.SHADES, []));
+                                  }}
+                                />
+                                <datalist id={`shade-${idx}`}>
+                                  {savedShades.map((shade, i) => (
+                                    <option key={`shade-${i}`} value={shade} />
+                                  ))}
+                                </datalist>
+                              </td>
+                            )}
                             <td>
                               <UomSelect value={r.uom} onChange={(val) => updateRow(idx, { uom: val })} />
                             </td>
@@ -1628,6 +2397,21 @@ const resetForm = () => {
                     <span>🗑️</span>
                     Clear All
                   </button>
+                  <button 
+                    className="btn btn-secondary" 
+                    onClick={() => {
+                      if (window.confirm('Clear all saved descriptions and shades?')) {
+                        localStorage.removeItem(LOCAL_STORAGE_KEYS.DESCRIPTIONS);
+                        localStorage.removeItem(LOCAL_STORAGE_KEYS.SHADES);
+                        setSavedDescriptions([]);
+                        setSavedShades([]);
+                        alert('All saved suggestions cleared!');
+                      }
+                    }}
+                  >
+                    <span>🗑️</span>
+                    Clear Saved Suggestions
+                  </button>
                 </div>
               </div>
 
@@ -1652,7 +2436,7 @@ const resetForm = () => {
                   </button>
                   <button className="btn btn-success" onClick={handleDownloadPdf}>
                     <span>📄</span>
-                   Preview
+                    Preview
                   </button>
                   <button className="btn btn-primary" onClick={handleOpenSubmitDialog} disabled={isSubmitting}>
                     <span>{isSubmitting ? "⏳" : "🚀"}</span>
@@ -1693,8 +2477,14 @@ const resetForm = () => {
               )}
               {leadHuman && <div style={{ marginBottom: "2px" }}>Lead Time: {leadHuman}</div>}
               {supervisorName && <div style={{ marginBottom: "2px" }}>Supervisor: {supervisorName}</div>}
+              {remarks && <div style={{ marginBottom: "2px", maxWidth: "200px" }}>Remarks: {remarks}</div>}
               <div style={{ marginBottom: "2px" }}>Supplier: {supplierName}</div>
-              <div style={{ fontWeight: 700 }}>Total: ₹{fmtMoney(totals.gross)}</div>
+              <div style={{ fontWeight: 700 }}>Total: ₹{fmtMoney(totals.grandTotal)}</div>
+              {gstEnabled && (
+                <div style={{ fontSize: "11px", color: "#64748b" }}>
+                  (Includes GST {gstPercentage}%: ₹{fmtMoney(totals.gstAmount)})
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -1724,6 +2514,70 @@ const resetForm = () => {
               </button>
               <button className="btn btn-primary" onClick={handleConfirmSubmit} disabled={isSubmitting}>
                 {isSubmitting ? "Submitting..." : "Confirm & Download PDF"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* GST Dialog */}
+      {showGstDialog && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <h3 className="modal-title">Add GST</h3>
+            <p className="modal-subtitle">
+              Enter GST percentage to be included in the total amount
+            </p>
+            
+            <div className="gst-input-container">
+              <div className="gst-input-group">
+                <input
+                  type="number"
+                  className="gst-input"
+                  value={gstPercentage}
+                  onChange={(e) => setGstPercentage(parseFloat(e.target.value) || 0)}
+                  min="0.01"
+                  max="100"
+                  step="0.01"
+                  autoFocus
+                />
+                <span className="gst-percent-symbol">%</span>
+              </div>
+              
+              <div className="gst-presets">
+                <button 
+                  className="gst-preset-btn" 
+                  onClick={() => setGstPercentage(5)}
+                >
+                  5%
+                </button>
+                <button 
+                  className="gst-preset-btn" 
+                  onClick={() => setGstPercentage(12)}
+                >
+                  12%
+                </button>
+                <button 
+                  className="gst-preset-btn" 
+                  onClick={() => setGstPercentage(18)}
+                >
+                  18%
+                </button>
+                <button 
+                  className="gst-preset-btn" 
+                  onClick={() => setGstPercentage(28)}
+                >
+                  28%
+                </button>
+              </div>
+            </div>
+            
+            <div className="modal-actions">
+              <button className="btn btn-secondary" onClick={() => setShowGstDialog(false)}>
+                Cancel
+              </button>
+              <button className="btn btn-primary" onClick={handleGstConfirm}>
+                Add GST
               </button>
             </div>
           </div>
