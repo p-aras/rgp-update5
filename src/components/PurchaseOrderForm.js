@@ -496,233 +496,269 @@ function generatePurchaseOrderPDF({ payload, options = {} }) {
   // =========================
   // TABLE SECTION - SIMPLIFIED COLUMN CALCULATION
   // =========================
-  (function drawTable() {
-    const x0 = page.m, innerW = page.w - 2 * page.m;
-    setSize(11); normal();
+// =========================
+// TABLE SECTION - FIXED VERSION with proper shade column handling
+// =========================
+(function drawTable() {
+  const x0 = page.m, innerW = page.w - 2 * page.m;
+  setSize(11); normal();
 
-    const rows = (payload.rows || []).map((r, i) => {
-      const qStr = (+r.qty || 0).toLocaleString();
-      const rateStr = money(+r.rate || 0);
-      const amt = (+r.qty || 0) * (+r.rate || 0);
-      const amtStr = money(amt);
-      return { ...r, _i: i, _qtyStr: qStr, _rateStr: rateStr, _amtStr: amtStr };
-    });
+  const rows = (payload.rows || []).map((r, i) => {
+    const qStr = (+r.qty || 0).toLocaleString();
+    const rateStr = money(+r.rate || 0);
+    const amt = (+r.qty || 0) * (+r.rate || 0);
+    const amtStr = money(amt);
+    return { ...r, _i: i, _qtyStr: qStr, _rateStr: rateStr, _amtStr: amtStr };
+  });
 
-    // Calculate totals for width estimation
-    let totalSum = rows.reduce((sum, r) => sum + ((+r.qty || 0) * (+r.rate || 0)), 0);
-    const gstAmount = gstEnabled ? (totalSum * gstPercentage) / 100 : 0;
-    const grandTotal = totalSum + gstAmount;
-    
-    // SIMPLIFIED COLUMN WIDTH CALCULATION
-    // Fixed widths that work well for A3 (larger page)
-    const FIXED_WIDTHS = {
-      line: 40,        // Line number (increased for A3)
-      department: 120, // Department (increased for A3)
-      description: 250, // Description (adjustable)
-      shade: shadeEnabled ? 120 : 0, // Shade if enabled
-      uom: 60,         // Unit of measure
-      qty: 90,         // Quantity (increased for A3)
-      rate: 100,       // Rate (increased for A3)
-      amount: 140      // Amount (increased for A3 and totals)
-    };
-    
-    // Calculate total fixed width
-    let totalFixedWidth = 0;
-    if (shadeEnabled) {
-      totalFixedWidth = FIXED_WIDTHS.line + FIXED_WIDTHS.department + FIXED_WIDTHS.description + 
-                        FIXED_WIDTHS.shade + FIXED_WIDTHS.uom + FIXED_WIDTHS.qty + 
-                        FIXED_WIDTHS.rate + FIXED_WIDTHS.amount;
-    } else {
-      totalFixedWidth = FIXED_WIDTHS.line + FIXED_WIDTHS.department + FIXED_WIDTHS.description + 
-                        FIXED_WIDTHS.uom + FIXED_WIDTHS.qty + FIXED_WIDTHS.rate + FIXED_WIDTHS.amount;
-    }
-    
-    // Calculate description width adjustment
-    const widthDiff = innerW - totalFixedWidth;
-    let adjustedDescWidth = FIXED_WIDTHS.description;
-    
-    if (widthDiff > 0) {
-      // If there's extra space, add it to description
-      adjustedDescWidth += widthDiff;
-    } else if (widthDiff < 0) {
-      // If we need to reduce, take from description but keep minimum
-      adjustedDescWidth = Math.max(150, FIXED_WIDTHS.description + widthDiff);
-    }
-    
-    // Define columns based on shadeEnabled
-    const cols = shadeEnabled ? [
-      { key: "line", title: "#", w: FIXED_WIDTHS.line, align: "right" },
-      { key: "department", title: "DEPARTMENT", w: FIXED_WIDTHS.department },
-      { key: "description", title: "DESCRIPTION", w: adjustedDescWidth },
-      { key: "shade", title: "SHADE", w: FIXED_WIDTHS.shade },
-      { key: "uom", title: "UOM", w: FIXED_WIDTHS.uom, align: "center" },
-      { key: "qty", title: "QTY", w: FIXED_WIDTHS.qty, align: "right" },
-      { key: "rate", title: "RATE", w: FIXED_WIDTHS.rate, align: "right" },
-      { key: "amount", title: "AMOUNT", w: FIXED_WIDTHS.amount, align: "right" },
-    ] : [
-      { key: "line", title: "#", w: FIXED_WIDTHS.line, align: "right" },
-      { key: "department", title: "DEPARTMENT", w: FIXED_WIDTHS.department },
-      { key: "description", title: "DESCRIPTION", w: adjustedDescWidth },
-      { key: "uom", title: "UOM", w: FIXED_WIDTHS.uom, align: "center" },
-      { key: "qty", title: "QTY", w: FIXED_WIDTHS.qty, align: "right" },
-      { key: "rate", title: "RATE", w: FIXED_WIDTHS.rate, align: "right" },
-      { key: "amount", title: "AMOUNT", w: FIXED_WIDTHS.amount, align: "right" },
+  // Calculate totals for width estimation
+  let totalSum = rows.reduce((sum, r) => sum + ((+r.qty || 0) * (+r.rate || 0)), 0);
+  const gstAmount = gstEnabled ? (totalSum * gstPercentage) / 100 : 0;
+  const grandTotal = totalSum + gstAmount;
+  
+  // DYNAMIC COLUMN WIDTH CALCULATION - Works for both with and without shade
+  // Base widths that work well for A3 (larger page)
+  const BASE_WIDTHS = {
+    line: 40,        // Line number
+    department: 120, // Department
+    description: 250, // Description (will be adjusted)
+    shade: 120,      // Shade column (only if enabled)
+    uom: 70,         // Unit of measure
+    qty: 80,         // Quantity
+    rate: 90,        // Rate
+    amount: 110      // Amount
+  };
+  
+  // Define columns based on shadeEnabled
+  let cols;
+  if (shadeEnabled) {
+    cols = [
+      { key: "line", title: "#", w: BASE_WIDTHS.line, align: "right" },
+      { key: "department", title: "DEPARTMENT", w: BASE_WIDTHS.department },
+      { key: "description", title: "DESCRIPTION", w: BASE_WIDTHS.description },
+      { key: "shade", title: "SHADE", w: BASE_WIDTHS.shade },
+      { key: "uom", title: "UOM", w: BASE_WIDTHS.uom, align: "center" },
+      { key: "qty", title: "QTY", w: BASE_WIDTHS.qty, align: "right" },
+      { key: "rate", title: "RATE", w: BASE_WIDTHS.rate, align: "right" },
+      { key: "amount", title: "AMOUNT", w: BASE_WIDTHS.amount, align: "right" },
     ];
+  } else {
+    cols = [
+      { key: "line", title: "#", w: BASE_WIDTHS.line, align: "right" },
+      { key: "department", title: "DEPARTMENT", w: BASE_WIDTHS.department },
+      { key: "description", title: "DESCRIPTION", w: BASE_WIDTHS.description },
+      { key: "uom", title: "UOM", w: BASE_WIDTHS.uom, align: "center" },
+      { key: "qty", title: "QTY", w: BASE_WIDTHS.qty, align: "right" },
+      { key: "rate", title: "RATE", w: BASE_WIDTHS.rate, align: "right" },
+      { key: "amount", title: "AMOUNT", w: BASE_WIDTHS.amount, align: "right" },
+    ];
+  }
+  
+  // Calculate total fixed width
+  let totalFixedWidth = cols.reduce((sum, col) => sum + col.w, 0);
+  
+  // Calculate available width for description column adjustment
+  const widthDiff = innerW - totalFixedWidth;
+  
+  // Adjust description width to fit available space
+  const descColIndex = cols.findIndex(col => col.key === "description");
+  if (descColIndex >= 0 && widthDiff !== 0) {
+    // Adjust description column width
+    cols[descColIndex].w = Math.max(150, cols[descColIndex].w + widthDiff);
     
-    // Calculate column X positions
-    const xs = [x0];
-    let cumulativeX = x0;
-    for (let i = 0; i < cols.length; i++) {
-      cumulativeX += cols[i].w;
-      xs.push(cumulativeX);
+    // Recalculate total width after adjustment
+    totalFixedWidth = cols.reduce((sum, col) => sum + col.w, 0);
+  }
+  
+  // Re-check if we still fit within page (should always fit after adjustment)
+  if (totalFixedWidth > innerW) {
+    // If still too wide, reduce description width
+    const overflow = totalFixedWidth - innerW;
+    if (descColIndex >= 0) {
+      cols[descColIndex].w = Math.max(100, cols[descColIndex].w - overflow);
     }
+  }
+  
+  // Calculate column X positions
+  const xs = [x0];
+  let cumulativeX = x0;
+  for (let i = 0; i < cols.length; i++) {
+    cumulativeX += cols[i].w;
+    xs.push(cumulativeX);
+  }
 
-    const headerH = 30, baseH = 24; // Increased for A3
+  const headerH = 30, baseH = 24;
 
-    // Draw table header
-    const drawTableHeader = () => {
-      if (needSpaceForContent(headerH)) {
-        // We're on a new page now
-      }
-      
-      // Draw table header with black border
-      doc.setDrawColor(0, 0, 0);
-      drawRect(x0, y, innerW, headerH);
-      setSize(12); bold();
-      cols.forEach((c, i) => {
-        const cx = c.align === "right" ? xs[i + 1] - 10 : 
-                   c.align === "center" ? (xs[i] + xs[i + 1]) / 2 : 
-                   xs[i] + 10;
-        const opt = c.align === "right" ? { align: "right" } : 
-                    c.align === "center" ? { align: "center" } : 
-                    {};
-        text(c.title, cx, y + 20, opt);
-        if (i > 0) {
-          doc.setDrawColor(0, 0, 0);
-          line(xs[i], y, xs[i], y + headerH);
-        }
-      });
-      normal(); 
-      y += headerH;
-    };
-
-    // Draw single row
-    const drawTableRow = (r, idx) => {
-      const descLines = doc.splitTextToSize(r.description || "", cols[2].w - 20); // Reduced for padding
-      const shadeLines = shadeEnabled ? doc.splitTextToSize(r.shade || "", cols[3]?.w - 20 || 0) : [];
-      const rowH = Math.max(baseH, descLines.length * 14 + 10, shadeLines.length * 14 + 10);
-      
-      if (needSpaceForContent(rowH)) {
-        drawTableHeader();
-      }
-      
-      // Draw row with black border
-      doc.setDrawColor(0, 0, 0);
-      drawRect(x0, y, innerW, rowH);
-      for (let i = 1; i < xs.length - 1; i++) {
+  // Draw table header
+  const drawTableHeader = () => {
+    if (needSpaceForContent(headerH)) {
+      // We're on a new page now
+    }
+    
+    // Draw table header with black border
+    doc.setDrawColor(0, 0, 0);
+    drawRect(x0, y, innerW, headerH);
+    setSize(12); bold();
+    cols.forEach((c, i) => {
+      const cx = c.align === "right" ? xs[i + 1] - 10 : 
+                 c.align === "center" ? (xs[i] + xs[i + 1]) / 2 : 
+                 xs[i] + 10;
+      const opt = c.align === "right" ? { align: "right" } : 
+                  c.align === "center" ? { align: "center" } : 
+                  {};
+      text(c.title, cx, y + 20, opt);
+      if (i > 0) {
         doc.setDrawColor(0, 0, 0);
-        line(xs[i], y, xs[i], y + rowH);
+        line(xs[i], y, xs[i], y + headerH);
       }
-      const yy = y + 16;
-      
-      // Draw cell contents with proper padding
-      let colIndex = 0;
-      
-      // Line #
-      rtext(r.line ?? idx + 1, xs[colIndex + 1] - 10, yy);
-      colIndex++;
-      
-      // Department
-      text(r.department || "", xs[colIndex] + 10, yy);
-      colIndex++;
-      
-      // Description
-      descLines.forEach((ln, j) => text(ln, xs[colIndex] + 10, yy + j * 14));
-      colIndex++;
-      
-      // Shade (if enabled)
-      if (shadeEnabled) {
-        if (shadeLines.length > 0) {
-          shadeLines.forEach((ln, j) => text(ln, xs[colIndex] + 10, yy + j * 14));
-        } else {
-          text(r.shade || "", xs[colIndex] + 10, yy);
-        }
-        colIndex++;
-      }
-      
-      // UOM
-      text(r.uom || "", (xs[colIndex] + xs[colIndex + 1]) / 2, yy, { align: "center" });
-      colIndex++;
-      
-      // Quantity
-      rtext(r._qtyStr, xs[colIndex + 1] - 10, yy);
-      colIndex++;
-      
-      // Rate
-      rtext(r._rateStr, xs[colIndex + 1] - 10, yy);
-      colIndex++;
-      
-      // Amount
-      rtext(r._amtStr, xs[colIndex + 1] - 10, yy);
-      
-      y += rowH;
-      return (+r.qty || 0) * (+r.rate || 0);
-    };
-
-    // Draw initial table header
-    drawTableHeader();
-    
-    // Reset totalSum calculation
-    totalSum = 0;
-    rows.forEach((r, i) => {
-      totalSum += drawTableRow(r, i);
     });
+    normal(); 
+    y += headerH;
+  };
+
+  // Draw single row
+  const drawTableRow = (r, idx) => {
+    const descColIndex = cols.findIndex(col => col.key === "description");
+    const shadeColIndex = shadeEnabled ? cols.findIndex(col => col.key === "shade") : -1;
     
-    // Draw total rows with GST calculation
-    const finalGstAmount = gstEnabled ? (totalSum * gstPercentage) / 100 : 0;
-    const finalGrandTotal = totalSum + finalGstAmount;
+    const descWidth = descColIndex >= 0 ? cols[descColIndex].w - 20 : 0;
+    const shadeWidth = shadeColIndex >= 0 ? cols[shadeColIndex].w - 20 : 0;
     
-    // Subtotal row
-    const subtotalH = 26;
-    if (needSpaceForContent(subtotalH + (gstEnabled ? 26 : 0) + 30)) {
+    const descLines = doc.splitTextToSize(r.description || "", descWidth);
+    const shadeLines = shadeEnabled ? doc.splitTextToSize(r.shade || "", shadeWidth) : [];
+    
+    const rowH = Math.max(baseH, descLines.length * 14 + 10, shadeLines.length * 14 + 10);
+    
+    if (needSpaceForContent(rowH)) {
       drawTableHeader();
     }
     
+    // Draw row with black border
     doc.setDrawColor(0, 0, 0);
-    drawRect(x0, y, innerW, subtotalH);
-    doc.setDrawColor(0, 0, 0);
-    line(xs[xs.length - 2], y, xs[xs.length - 2], y + subtotalH);
-    setSize(12); bold();
-    text("SUBTOTAL", x0 + 10, y + 18);
-    rtext(money(totalSum), xs[xs.length - 1] - 10, y + 18);
-    normal(); 
-    y += subtotalH;
+    drawRect(x0, y, innerW, rowH);
+    for (let i = 1; i < xs.length - 1; i++) {
+      doc.setDrawColor(0, 0, 0);
+      line(xs[i], y, xs[i], y + rowH);
+    }
+    const yy = y + 16;
     
-    // GST row (if enabled)
-    if (gstEnabled) {
-      doc.setDrawColor(0, 0, 0);
-      drawRect(x0, y, innerW, subtotalH);
-      doc.setDrawColor(0, 0, 0);
-      line(xs[xs.length - 2], y, xs[xs.length - 2], y + subtotalH);
-      setSize(12); bold();
-      text(`GST ${gstPercentage}%`, x0 + 10, y + 18);
-      rtext(money(finalGstAmount), xs[xs.length - 1] - 10, y + 18);
-      normal(); 
-      y += subtotalH;
+    // Draw cell contents
+    let colIndex = 0;
+    
+    // Line #
+    rtext(r.line ?? idx + 1, xs[colIndex + 1] - 10, yy);
+    colIndex++;
+    
+    // Department
+    text(r.department || "", xs[colIndex] + 10, yy);
+    colIndex++;
+    
+    // Description
+    descLines.forEach((ln, j) => text(ln, xs[colIndex] + 10, yy + j * 14));
+    colIndex++;
+    
+    // Shade (if enabled)
+    if (shadeEnabled) {
+      if (shadeLines.length > 0) {
+        shadeLines.forEach((ln, j) => text(ln, xs[colIndex] + 10, yy + j * 14));
+      } else {
+        text(r.shade || "", xs[colIndex] + 10, yy);
+      }
+      colIndex++;
     }
     
-    // Grand Total row
-    const totalH = 30;
+    // UOM
+    text(r.uom || "", (xs[colIndex] + xs[colIndex + 1]) / 2, yy, { align: "center" });
+    colIndex++;
+    
+    // Quantity
+    rtext(r._qtyStr, xs[colIndex + 1] - 10, yy);
+    colIndex++;
+    
+    // Rate
+    rtext(r._rateStr, xs[colIndex + 1] - 10, yy);
+    colIndex++;
+    
+    // Amount
+    rtext(r._amtStr, xs[colIndex + 1] - 10, yy);
+    
+    y += rowH;
+    return (+r.qty || 0) * (+r.rate || 0);
+  };
+
+  // Draw initial table header
+  drawTableHeader();
+  
+  // Reset totalSum calculation
+  totalSum = 0;
+  rows.forEach((r, i) => {
+    totalSum += drawTableRow(r, i);
+  });
+  
+  // Draw total rows with GST calculation
+  const finalGstAmount = gstEnabled ? (totalSum * gstPercentage) / 100 : 0;
+  const finalGrandTotal = totalSum + finalGstAmount;
+  
+  // Find the amount column index for drawing lines
+  const amountColIndex = cols.findIndex(col => col.key === "amount");
+  const rateColIndex = cols.findIndex(col => col.key === "rate");
+  
+  // Subtotal row
+  const subtotalH = 26;
+  if (needSpaceForContent(subtotalH + (gstEnabled ? 26 : 0) + 30)) {
+    drawTableHeader();
+  }
+  
+  doc.setDrawColor(0, 0, 0);
+  drawRect(x0, y, innerW, subtotalH);
+  
+  // Draw vertical line before amount column
+  if (rateColIndex >= 0) {
     doc.setDrawColor(0, 0, 0);
-    drawRect(x0, y, innerW, totalH);
+    line(xs[rateColIndex], y, xs[rateColIndex], y + subtotalH);
+  }
+  
+  setSize(12); bold();
+  text("SUBTOTAL", x0 + 10, y + 18);
+  rtext(money(totalSum), xs[xs.length - 1] - 10, y + 18);
+  normal(); 
+  y += subtotalH;
+  
+  // GST row (if enabled)
+  if (gstEnabled) {
     doc.setDrawColor(0, 0, 0);
-    line(xs[xs.length - 2], y, xs[xs.length - 2], y + totalH);
-    setSize(14); bold();
-    text(gstEnabled ? "GRAND TOTAL" : "TOTAL", x0 + 10, y + 20);
-    rtext(money(finalGrandTotal), xs[xs.length - 1] - 12, y + 20);
+    drawRect(x0, y, innerW, subtotalH);
+    
+    // Draw vertical line before amount column
+    if (rateColIndex >= 0) {
+      doc.setDrawColor(0, 0, 0);
+      line(xs[rateColIndex], y, xs[rateColIndex], y + subtotalH);
+    }
+    
+    setSize(12); bold();
+    text(`GST ${gstPercentage}%`, x0 + 10, y + 18);
+    rtext(money(finalGstAmount), xs[xs.length - 1] - 10, y + 18);
     normal(); 
-    y += totalH;
-  })();
+    y += subtotalH;
+  }
+  
+  // Grand Total row
+  const totalH = 30;
+  doc.setDrawColor(0, 0, 0);
+  drawRect(x0, y, innerW, totalH);
+  
+  // Draw vertical line before amount column
+  if (rateColIndex >= 0) {
+    doc.setDrawColor(0, 0, 0);
+    line(xs[rateColIndex], y, xs[rateColIndex], y + totalH);
+  }
+  
+  setSize(14); bold();
+  text(gstEnabled ? "GRAND TOTAL" : "TOTAL", x0 + 10, y + 20);
+  rtext(money(finalGrandTotal), xs[xs.length - 1] - 12, y + 20);
+  normal(); 
+  y += totalH;
+})();
 
   // =========================
   // FINAL FOOTER
