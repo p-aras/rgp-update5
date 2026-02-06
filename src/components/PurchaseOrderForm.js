@@ -1993,13 +1993,38 @@ const UOM_OPTIONS = [
 
       <div className="po-container" ref={printableRef}>
         {/* Header */}
-        <header className="po-header">
-          <div className="header-content">
-            <h1 className="po-title">Purchase Order</h1>
-            <p className="po-subtitle">Create and manage supplier purchase orders with ease</p>
-          </div>
-        </header>
-
+      <header className="po-header">
+  <div className="header-content">
+    {/* Add back button at top */}
+    <button 
+      onClick={handleBackNavigation}
+      style={{
+        position: 'absolute',
+        top: '32px',
+        left: '40px',
+        background: 'rgba(255,255,255,0.2)',
+        border: 'none',
+        color: 'white',
+        padding: '10px 16px',
+        borderRadius: '8px',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        fontSize: '14px',
+        fontWeight: '600',
+        transition: 'all 0.2s ease'
+      }}
+      onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.3)'}
+      onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'}
+    >
+      ← Back
+    </button>
+    
+    <h1 className="po-title">Purchase Order</h1>
+    <p className="po-subtitle">Create and manage supplier purchase orders with ease</p>
+  </div>
+</header>
         <div className="po-content">
           <div className="content-grid">
             {/* Sidebar Navigation */}

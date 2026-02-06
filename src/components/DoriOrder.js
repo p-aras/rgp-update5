@@ -55,7 +55,7 @@ const SHEET_IDD = "1LjwZqU26F0xwL1tEyps8txsM1qS8LLUuE-sy_4CQK6k";
 const SHEET_IDDD="1LjwZqU26F0xwL1tEyps8txsM1qS8LLUuE-sy_4CQK6k";
 
 // Simple QR System URL - YOUR APPSCRIPT URL
-const QR_SYSTEM_URL = "https://script.google.com/macros/s/AKfycbyBbO20l3JIdGIahKarXqnZB3uisMx4wlgzMy5aLqxZnlle9oBhmuPItupZCc6IYNcP/exec";
+const QR_SYSTEM_URL = "https://script.google.com/macros/s/AKfycbxBfA7maSXGPVW3I_HkRpL27l6nC_CgkHip4KYOEpMsdFHcsPTUuiYp0OuFz4_y3zZq/exec";
 
 // QR Code Helper Function
 const toDataURL = (src) =>
@@ -453,7 +453,7 @@ async function fetchPendingZipCount(signal) {
   try {
     console.log('🔍 Fetching pending Dori data from Google Sheets...');
     const range = encodeURIComponent('DoriPurchaseOrders!A1:Z');
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_IDDD}/values/${range}?key=${GOOGLE_API_KEY}`;
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_IDD}/values/${range}?key=${GOOGLE_API_KEY}`;
     
     console.log('📡 Fetching from URL:', url);
     const response = await fetch(url, { signal });
@@ -463,7 +463,7 @@ async function fetchPendingZipCount(signal) {
     }
 
     const data = await response.json();
-    console.log('📊 Raw data received:', data);
+    console.log('📊 Raw data received, total rows:', data?.values?.length || 0);
 
     if (!data?.values?.length) {
       console.log('❌ No data found in DoriPurchaseOrders sheet');
@@ -473,9 +473,12 @@ async function fetchPendingZipCount(signal) {
     const headers = data.values[0].map(norm);
     console.log('📋 Sheet headers:', headers);
     
-    // Find column indices for the fields we need
+    // Find column indices for all relevant fields
     const materialEntryDateIndex = headers.findIndex(h => 
       includes(h, 'material entry date') || includes(h, 'material entry')
+    );
+    const supplierNameIndex = headers.findIndex(h => 
+      includes(h, 'supplier name') || includes(h, 'supplier')
     );
     const lotNumberIndex = headers.findIndex(h => 
       includes(h, 'lot number') || includes(h, 'lot')
@@ -486,18 +489,18 @@ async function fetchPendingZipCount(signal) {
 
     console.log('🔍 Column indices found:', {
       materialEntryDateIndex,
+      supplierNameIndex,
       lotNumberIndex,
       totalPiecesIndex
     });
 
     // If we can't find the required columns, return 0
-    if (materialEntryDateIndex === -1 || lotNumberIndex === -1 || totalPiecesIndex === -1) {
-      console.warn('❌ Required columns not found for pending zip count');
-      console.log('📋 Available columns:', headers);
+    if (lotNumberIndex === -1 || totalPiecesIndex === -1) {
+      console.warn('❌ Required columns (Lot Number, Total Pieces) not found');
       return { pendingLots: 0, totalPendingPieces: 0 };
     }
 
-    // Count lots where Material Entry Date is empty and calculate total pending pieces
+    // Count lots where Material Entry Date is empty AND Supplier Name is empty
     let pendingLots = 0;
     let totalPendingPieces = 0;
     
@@ -505,19 +508,42 @@ async function fetchPendingZipCount(signal) {
     for (let i = 1; i < data.values.length; i++) {
       const row = data.values[i] || [];
       
-      const materialEntryDate = norm(row[materialEntryDateIndex]);
       const lotNumber = norm(row[lotNumberIndex]);
       const totalPieces = parseInt(norm(row[totalPiecesIndex])) || 0;
       
+      // Check if material entry date exists (if column exists)
+      let hasMaterialEntryDate = false;
+      if (materialEntryDateIndex !== -1) {
+        const materialEntryDate = norm(row[materialEntryDateIndex]);
+        hasMaterialEntryDate = !!materialEntryDate;
+      }
+      
+      // Check if supplier name exists (if column exists)
+      let hasSupplierName = false;
+      if (supplierNameIndex !== -1) {
+        const supplierName = norm(row[supplierNameIndex]);
+        hasSupplierName = !!supplierName;
+      }
+      
+      // A lot is PENDING if:
+      // 1. It has a lot number
+      // 2. It has total pieces > 0
+      // 3. Material Entry Date is empty OR Supplier Name is empty
+      // (Depending on your workflow, you might want to check both)
+      const isPending = lotNumber && 
+                       totalPieces > 0 && 
+                       (!hasMaterialEntryDate || !hasSupplierName);
+      
       console.log(`📦 Row ${i}:`, {
         lotNumber,
-        materialEntryDate,
         totalPieces,
-        rowData: row
+        hasMaterialEntryDate,
+        hasSupplierName,
+        isPending,
+        rowData: row.slice(0, 5) // First 5 columns for debugging
       });
       
-      // Count if lot number exists, material entry date is empty, and total pieces is valid
-      if (lotNumber && !materialEntryDate && totalPieces > 0) {
+      if (isPending) {
         pendingLots++;
         totalPendingPieces += totalPieces;
         console.log(`✅ Pending lot found: ${lotNumber}, Total Pieces: ${totalPieces}`);

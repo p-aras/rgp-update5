@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { jsPDF } from "jspdf";
 
 // MUST be your deployed /exec URL
@@ -109,56 +109,210 @@ const DEPT_OPTIONS = [
   "Other"
 ];
 
-
 const UOM_OPTIONS = [
-  // Length (Fabric)
-  "M",     // Meters
-  "CM",    // Centimeters
-  "IN",    // Inches
-  "YD",    // Yards
-  "FT",    // Feet
+  // ========== LENGTH / LINEAR ==========
+  "M",      // Meters
+  "CM",     // Centimeters
+  "MM",     // Millimeters
+  "KM",     // Kilometers
+  "IN",     // Inches
+  "FT",     // Feet
+  "YD",     // Yards
+  "MI",     // Miles
 
-  // Fabric Packaging
-  "ROLL",  // Rolls
-  "BALE",  // Bales
-  "BUNDLE",   // Bundles
-  "THAN",  // Thans
-  "PKT",   // Packs
+  // ========== FABRIC & TEXTILE SPECIFIC ==========
+  "ROLL",   // Rolls
+  "BALE",   // Bales
+  "BUNDLE", // Bundles
+  "THAN",   // Thans
+  "PKT",    // Packs
+  "BOLT",   // Bolts
+  "PIECE",  // Piece (for fabric cuts)
+  "CUT",    // Cut lengths
+  
+  // ========== WEIGHT ==========
+  "KG",     // Kilograms
+  "GM",     // Grams
+  "MG",     // Milligrams
+  "TON",    // Metric Tons
+  "LBS",    // Pounds
+  "OZ",     // Ounces
 
-  // Weight
-  "KG",    // Kilograms
-  "GM",    // Grams
-  "LBS",   // Pounds
+  // ========== QUANTITY / COUNT ==========
+  "PCS",    // Pieces
+  "UNIT",   // Units
+  "PAIR",   // Pairs
+  "SET",    // Sets
+  "DOZEN",  // Dozens
+  "GROSS",  // Gross (144 units)
+  "REAM",   // Reams (paper/thread)
+  "COUNT",  // Count (for small items)
+  "EA",     // Each
+  "NO",     // Number
 
-  // Quantity / Pieces
-  "PCS",   // Pieces
-  "UNIT",  // Units
-  "PAIRS",   // Pairs
-  "SET",   // Sets
-  "DOZEN",   // Dozens
+  // ========== AREA ==========
+  "SQM",    // Square Meters
+  "SQCM",   // Square Centimeters
+  "SQFT",   // Square Feet
+  "SQIN",   // Square Inches
+  "SQYD",   // Square Yards
+  "ACRE",   // Acres
+  "HECTARE", // Hectares
 
-  // Trims & Accessories
-  "CONE",  // Cones
-  "CARD",  // Cards
-  "SHT",   // Sheets
-  "STRIP", // Strips
-  "POLY",  // Polybags
-  "BOX",   // Boxes
+  // ========== VOLUME ==========
+  "L",      // Liters
+  "ML",     // Milliliters
+  "CC",     // Cubic Centimeters
+  "M3",     // Cubic Meters
+  "GAL",    // Gallons
+  "CBM",    // Cubic Meters (shipping)
 
-  // Area
-  "SQM",   // Square Meters
-  "SQFT",  // Square Feet
-  "SQYD",  // Square Yards
+  // ========== TIME ==========
+  "HR",     // Hours
+  "MIN",    // Minutes
+  "DAY",    // Days
+  "WK",     // Weeks
+  "MONTH",  // Months
+  "YR",     // Years
 
-  // Textile Specific
+  // ========== TEXTILE TRIMS & ACCESSORIES ==========
+  "CONE",   // Cones
+  "CARD",   // Cards
+  "SHEET",  // Sheets
+  "SHT",    // Sheets (short)
+  "STRIP",  // Strips
+  "POLY",   // Polybags
+  "BOX",    // Boxes
+  "CARTON", // Cartons
+  "PACK",   // Packs
+  "TUBE",   // Tubes
+  "SPOOL",  // Spools
+  "REEL",   // Reels
+  "BOBBIN", // Bobbins
+  "HANK",   // Hanks (yarn)
+
+  // ========== ELECTRICAL / HARDWARE ==========
+  "MTR",    // Meter (electrical wire)
+  "COIL",   // Coils
+  "LOT",    // Lots
+  "KIT",    // Kits
+  "ASSY",   // Assembly
+
+  // ========== PACKAGING ==========
+  "BAG",    // Bags
+  "SACK",   // Sacks
+  "DRUM",   // Drums
+  "CAN",    // Cans
+  "JAR",    // Jars
+  "BOTTLE", // Bottles
+  "TIN",    // Tins
+  "CASE",   // Cases
+  "CRATE",  // Crates
+  "PALLET", // Pallets
+
+  // ========== FINISHED GOODS ==========
+  "GARMENT", // Garments
+  "SHIRT",   // Shirts
+  "PANT",    // Pants
+  "DRESS",   // Dresses
+  "JACKET",  // Jackets
+  "SUIT",    // Suits
+
+  // ========== CHEMICAL / LIQUID ==========
+  "LTR",    // Liters (chemicals)
+  "KG/L",   // Kilograms per liter
+  "BOTTLE", // Bottles (chemicals)
+  "DRUM",   // Drums (chemicals)
+  "CANISTER", // Canisters
+
+  // ========== RETAIL / WHOLESALE ==========
+  "DISPLAY",  // Display units
+  "RACK",     // Racks
+  "STAND",    // Stands
+  "MANNEQUIN", // Mannequins
+
+  // ========== CONSTRUCTION / BUILDING ==========
+  "SLAB",     // Slabs
+  "BAR",      // Bars (steel)
+  "ROD",      // Rods
+  "PLATE",    // Plates
+  "BEAM",     // Beams
+  "BLOCK",    // Blocks
+
+  // ========== SOFTWARE / DIGITAL ==========
+  "LICENSE",  // Licenses
+  "USER",     // Users
+  "SEAT",     // Seats
+  "SERVER",   // Servers
+  "DOMAIN",   // Domains
+
+  // ========== TEXTILE MANUFACTURING ==========
   "PATTERN",  // Pattern
-  "SAMPLES",   // Sample
+  "SAMPLE",   // Sample
+  "SWATCH",   // Swatch
+  "PANEL",    // Panel
+  "PLY",      // Ply (fabric layers)
+  "LAYER",    // Layers
+  "RUN",      // Production runs
 
-  // Misc
-  "OTHER"
+  // ========== RIBBONS & TAPES ==========
+  "REEL",     // Reels (ribbon)
+  "SPOOL",    // Spools (thread)
+  "YARD",     // Yards (ribbon)
+  "ROLL",     // Rolls (tape)
+
+  // ========== BUTTONS & FASTENERS ==========
+  "GROSS",    // Gross (buttons)
+  "DOZEN",    // Dozen (buttons)
+  "PKT",      // Packets (buttons)
+  "CARD",     // Cards (buttons)
+
+  // ========== ZIPPERS & DORI ==========
+  "PIECE",    // Pieces (zippers)
+  "METER",    // Meters (zipper tape)
+  "DOZEN",    // Dozen (zipper sliders)
+
+  // ========== THREAD ==========
+  "CONE",     // Cones (thread)
+  "SPOOL",    // Spools (thread)
+  "REEL",     // Reels (thread)
+  "TUBE",     // Tubes (thread)
+
+  // ========== LABELS & TAGS ==========
+  "ROLL",     // Rolls (labels)
+  "SHEET",    // Sheets (tags)
+  "PKT",      // Packets (labels)
+  "REEL",     // Reels (label tape)
+
+  // ========== INTERNATIONAL STANDARDS ==========
+  "CTN",      // Carton (shipping)
+  "PLT",      // Pallet
+  "SKU",      // Stock Keeping Unit
+  "BATCH",    // Batch
+  "LOT",      // Lot number
+
+  // ========== SERVICE UNITS ==========
+  "HOUR",     // Hour (services)
+  "DAY",      // Day (rental)
+  "PROJECT",  // Project basis
+  "SERVICE",  // Service unit
+
+  // ========== METRIC PREFIXES ==========
+  "MM",       // Millimeter
+  "CM",       // Centimeter
+  "DM",       // Decimeter
+  "M",        // Meter
+  "DAM",      // Decameter
+  "HM",       // Hectometer
+  "KM",       // Kilometer
+
+  // ========== CATCH-ALL ==========
+  "OTHER",
+  "VARIOUS",
+  "MIXED",
+  "ASSORTED",
+  "CUSTOM"
 ];
-
-
 
 const RGP_TYPES = ["Fabric", "Tools", "Machine", "Sample", "Other"];
 
@@ -487,6 +641,244 @@ function generateRgpPDF({ payload, options = {} }) {
   return doc;
 }
 
+// Preview Modal Component
+function PreviewModal({ payload, onClose, onConfirm, loading }) {
+  const [previewPdfUrl, setPreviewPdfUrl] = useState(null);
+
+  useEffect(() => {
+    // Generate preview PDF
+    const generatePreview = () => {
+      try {
+        // Create a temporary RGP number for preview
+        const previewPayload = {
+          ...payload,
+          rgpNo: payload.rgpNo === "(auto)" ? "RGP-PREVIEW-001" : payload.rgpNo
+        };
+
+        const doc = generateRgpPDF({ 
+          payload: previewPayload, 
+          options: { 
+            qrEntryImage: null, 
+            qrReturnImage: null 
+          } 
+        });
+
+        const pdfBlob = doc.output('blob');
+        const pdfUrl = URL.createObjectURL(pdfBlob);
+        setPreviewPdfUrl(pdfUrl);
+
+        return () => {
+          if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+        };
+      } catch (error) {
+        console.error("Failed to generate preview:", error);
+      }
+    };
+
+    generatePreview();
+  }, [payload]);
+
+  return (
+    <div style={modalStyles.overlay}>
+      <div style={modalStyles.modal}>
+        <div style={modalStyles.header}>
+          <h2 style={modalStyles.title}>
+            <Emoji size={20} mr={8}>👁️</Emoji>
+            Preview RGP
+          </h2>
+          <button 
+            onClick={onClose} 
+            style={modalStyles.closeButton}
+            disabled={loading}
+          >
+            <Emoji size={16}>❌</Emoji>
+          </button>
+        </div>
+
+        <div style={modalStyles.previewContainer}>
+          {previewPdfUrl ? (
+            <iframe
+              src={previewPdfUrl}
+              title="RGP Preview"
+              style={modalStyles.previewFrame}
+            />
+          ) : (
+            <div style={modalStyles.loadingPreview}>
+              <Emoji size={32}>⏳</Emoji>
+              <p>Generating preview...</p>
+            </div>
+          )}
+        </div>
+
+        <div style={modalStyles.footer}>
+          <button 
+            onClick={onClose} 
+            style={modalStyles.cancelButton}
+            disabled={loading}
+          >
+            <Emoji size={16} mr={6}>←</Emoji> Back to Edit
+          </button>
+          <button 
+            onClick={onConfirm} 
+            style={modalStyles.confirmButton}
+            disabled={loading}
+          >
+            <Emoji size={16} mr={6}>
+              {loading ? "⏳" : "✅"}
+            </Emoji>
+            {loading ? "Submitting..." : "Confirm & Submit"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Modal Styles
+const modalStyles = {
+  overlay: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    backdropFilter: 'blur(8px)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+    padding: '20px',
+  },
+  modal: {
+    backgroundColor: 'white',
+    borderRadius: '20px',
+    width: '90%',
+    maxWidth: '1200px',
+    maxHeight: '90vh',
+    display: 'flex',
+    flexDirection: 'column',
+    boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+    overflow: 'hidden',
+  },
+  header: {
+    padding: '24px 32px',
+    backgroundColor: '#f8fafc',
+    borderBottom: '2px solid #e2e8f0',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  title: {
+    margin: 0,
+    fontSize: '1.8rem',
+    fontWeight: '700',
+    color: '#00296b',
+    display: 'flex',
+    alignItems: 'center',
+  },
+  closeButton: {
+    background: 'none',
+    border: '2px solid #e2e8f0',
+    borderRadius: '10px',
+    width: '44px',
+    height: '44px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    fontSize: '18px',
+    transition: 'all 0.3s ease',
+    color: '#64748b',
+    ':hover': {
+      backgroundColor: '#f1f5f9',
+      borderColor: '#cbd5e1',
+    },
+    ':disabled': {
+      opacity: 0.5,
+      cursor: 'not-allowed',
+    },
+  },
+  previewContainer: {
+    flex: 1,
+    padding: '24px',
+    overflow: 'auto',
+    backgroundColor: '#f1f5f9',
+  },
+  previewFrame: {
+    width: '100%',
+    height: '500px',
+    border: 'none',
+    borderRadius: '12px',
+    boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
+  },
+  loadingPreview: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: '500px',
+    color: '#64748b',
+    fontSize: '1.1rem',
+  },
+  footer: {
+    padding: '24px 32px',
+    backgroundColor: '#f8fafc',
+    borderTop: '2px solid #e2e8f0',
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '16px',
+  },
+  cancelButton: {
+    padding: '14px 28px',
+    backgroundColor: 'white',
+    color: '#4b5563',
+    border: '2px solid #d1d5db',
+    borderRadius: '12px',
+    fontSize: '1rem',
+    fontWeight: '600',
+    cursor: 'pointer',
+    transition: 'all 0.3s ease',
+    display: 'flex',
+    alignItems: 'center',
+    fontFamily: 'inherit',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
+    ':hover:not(:disabled)': {
+      backgroundColor: '#f9fafb',
+      borderColor: '#9ca3af',
+      transform: 'translateY(-2px)',
+    },
+    ':disabled': {
+      opacity: 0.5,
+      cursor: 'not-allowed',
+    },
+  },
+  confirmButton: {
+    padding: '14px 32px',
+    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+    color: 'white',
+    border: 'none',
+    borderRadius: '12px',
+    fontSize: '1.1rem',
+    fontWeight: '700',
+    cursor: 'pointer',
+    transition: 'all 0.3s ease',
+    display: 'flex',
+    alignItems: 'center',
+    fontFamily: 'inherit',
+    boxShadow: '0 6px 20px rgba(16, 185, 129, 0.3)',
+    ':hover:not(:disabled)': {
+      transform: 'translateY(-3px)',
+      boxShadow: '0 10px 25px rgba(16, 185, 129, 0.4)',
+    },
+    ':disabled': {
+      background: 'linear-gradient(135deg, #9ca3af 0%, #6b7280 100%)',
+      cursor: 'not-allowed',
+      transform: 'none',
+    },
+  },
+};
+
 export default function FabricRgpForm({ today = new Date(), onSubmit, onBack }) {
   const toYMD = (d) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
@@ -517,6 +909,8 @@ export default function FabricRgpForm({ today = new Date(), onSubmit, onBack }) 
   const [customRgpType, setCustomRgpType] = useState("");
   const [customDepartments, setCustomDepartments] = useState({});
   const [customUoms, setCustomUoms] = useState({});
+  const [showPreview, setShowPreview] = useState(false);
+  const [submissionComplete, setSubmissionComplete] = useState(false);
 
   const update = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -581,21 +975,82 @@ export default function FabricRgpForm({ today = new Date(), onSubmit, onBack }) 
     return Object.keys(e).length === 0;
   };
 
-  // submit
-  const handleSubmit = async (e) => {
+  // Silent refresh function
+  const silentRefresh = () => {
+    // Store form state in sessionStorage for persistence
+    const formKey = 'rgp_form_backup_' + new Date().getTime();
+    sessionStorage.setItem(formKey, JSON.stringify({
+      form,
+      customRgpType,
+      customDepartments,
+      customUoms
+    }));
+
+    // Set submission complete flag
+    setSubmissionComplete(true);
+
+    // After a short delay, refresh the page
+    setTimeout(() => {
+      // Clear the backup after successful submission
+      sessionStorage.removeItem(formKey);
+      
+      // Use location.reload() for a complete silent refresh
+      window.location.reload();
+    }, 100);
+  };
+
+  // Check for backup data on component mount
+  useEffect(() => {
+    const checkForBackup = () => {
+      const keys = Object.keys(sessionStorage);
+      const backupKey = keys.find(key => key.startsWith('rgp_form_backup_'));
+      
+      if (backupKey) {
+        try {
+          const backup = JSON.parse(sessionStorage.getItem(backupKey));
+          if (backup) {
+            // Restore form state
+            setForm(backup.form);
+            setCustomRgpType(backup.customRgpType);
+            setCustomDepartments(backup.customDepartments);
+            setCustomUoms(backup.customUoms);
+            
+            // Show success message
+            setTimeout(() => {
+              alert("✅ Form submitted successfully! Data has been restored.");
+            }, 500);
+            
+            // Clear the backup
+            sessionStorage.removeItem(backupKey);
+          }
+        } catch (error) {
+          console.error("Failed to restore backup:", error);
+          sessionStorage.removeItem(backupKey);
+        }
+      }
+    };
+
+    checkForBackup();
+  }, []);
+
+  // Preview handler
+  const handlePreview = (e) => {
     e.preventDefault();
+    if (!validate()) return;
+    setShowPreview(true);
+  };
+
+  // Final submission handler
+  const handleFinalSubmit = async () => {
     if (submitting) return;
     
-    // Validate Web App URL
     if (!WEB_APP_URL.includes("/exec")) {
       alert("❌ WEB_APP_URL must be a deployed /exec URL");
       return;
     }
-    
-    if (!validate()) return;
 
     const first = (form.entries && form.entries[0]) || {};
-    const legacyQty = (Number(first.qty1) || 0) || ""; // CHANGED: Only QTY1
+    const legacyQty = (Number(first.qty1) || 0) || "";
 
     const rgpTypeFinal = form.rgpType === "Other" ? customRgpType.trim() : form.rgpType;
 
@@ -675,8 +1130,6 @@ export default function FabricRgpForm({ today = new Date(), onSubmit, onBack }) 
         json.returnUrl ||
         `${baseUrl}?mode=return&rgp=${encodeURIComponent(assignedRgpNo)}`;
 
-      setForm((f) => ({ ...f, rgpNo: assignedRgpNo }));
-
       // Generate QR codes with enhanced error handling
       console.log("Generating QR codes...");
       let entryQR, returnQR;
@@ -717,6 +1170,9 @@ export default function FabricRgpForm({ today = new Date(), onSubmit, onBack }) 
         }
       }
 
+      // Update form with actual RGP number
+      setForm((f) => ({ ...f, rgpNo: assignedRgpNo }));
+
       if (onSubmit) onSubmit({ ...payload, rgpNo: assignedRgpNo });
       
       // Generate PDF with new style
@@ -732,12 +1188,18 @@ export default function FabricRgpForm({ today = new Date(), onSubmit, onBack }) 
       const safeNo = assignedRgpNo.replace(/[^\w\-]+/g, "-");
       pdfDoc.save(`RGP-${safeNo}.pdf`);
       
+      // Close preview modal
+      setShowPreview(false);
+      
+      // Show success message briefly
       alert(`✅ RGP Created Successfully!\nRGP No: ${assignedRgpNo}\nPDF has been downloaded.`);
+      
+      // Trigger silent refresh
+      silentRefresh();
       
     } catch (err) {
       console.error("Submit error:", err);
       alert(`❌ Error: ${err.message}\n\nData was saved to sheet but PDF generation failed.`);
-    } finally {
       setSubmitting(false);
     }
   };
@@ -818,7 +1280,7 @@ export default function FabricRgpForm({ today = new Date(), onSubmit, onBack }) 
         </div>
       </header>
 
-      <form onSubmit={handleSubmit} style={styles.form}>
+      <form onSubmit={handlePreview} style={styles.form}>
         <fieldset style={styles.fieldset}>
           <legend style={styles.legend}>
             <Emoji size={18} mr={8}>📌</Emoji>
@@ -1141,21 +1603,43 @@ export default function FabricRgpForm({ today = new Date(), onSubmit, onBack }) 
           <button 
             type="button" 
             onClick={handleReset} 
-            disabled={submitting}
+            disabled={submitting || submissionComplete}
             style={styles.secondaryButton}
           >
             <Emoji mr={6}>↺</Emoji> Reset Form
           </button>
-          <button 
-            type="submit" 
-            disabled={submitting}
-            style={styles.primaryButton}
-          >
-            <Emoji mr={6}>{submitting ? "⏳" : "📄"}</Emoji>
-            {submitting ? "Saving…" : "Save & Download PDF"}
-          </button>
+          <div style={styles.actionButtons}>
+            <button 
+              type="submit" 
+              disabled={submitting || submissionComplete}
+              style={styles.previewButton}
+            >
+              <Emoji mr={6}>👁️</Emoji>
+              Preview RGP
+            </button>
+            <button 
+              type="button"
+              onClick={handleFinalSubmit}
+              disabled={submitting || submissionComplete}
+              style={styles.primaryButton}
+            >
+              <Emoji mr={6}>
+                {submitting ? "⏳" : "📄"}
+              </Emoji>
+              {submitting ? "Saving…" : "Save & Download PDF"}
+            </button>
+          </div>
         </div>
       </form>
+
+      {showPreview && (
+        <PreviewModal
+          payload={form}
+          onClose={() => setShowPreview(false)}
+          onConfirm={handleFinalSubmit}
+          loading={submitting}
+        />
+      )}
     </div>
   );
 }
@@ -1413,6 +1897,27 @@ const styles = {
     paddingTop: "28px",
     borderTop: "2px solid #f1f5f9",
   },
+  actionButtons: {
+    display: "flex",
+    gap: "16px",
+  },
+  previewButton: {
+    padding: "16px 32px",
+    background: "linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)",
+    color: "white",
+    border: "none",
+    borderRadius: "12px",
+    fontSize: "1.1rem",
+    fontWeight: "700",
+    cursor: "pointer",
+    transition: "all 0.3s ease",
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    boxShadow: "0 6px 20px rgba(59, 130, 246, 0.3)",
+    fontFamily: "inherit",
+    letterSpacing: "0.5px",
+  },
   primaryButton: {
     padding: "16px 36px",
     background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
@@ -1470,6 +1975,19 @@ Object.assign(styles.textarea, {
     borderColor: "#667eea",
     boxShadow: "0 0 0 3px rgba(102, 126, 234, 0.1)",
     backgroundColor: "#fafbff",
+  }
+});
+
+Object.assign(styles.previewButton, {
+  ':hover:not(:disabled)': {
+    transform: "translateY(-3px)",
+    boxShadow: "0 10px 25px rgba(59, 130, 246, 0.4)",
+  },
+  ':disabled': {
+    background: "linear-gradient(135deg, #9ca3af 0%, #6b7280 100%)",
+    cursor: "not-allowed",
+    transform: "none",
+    boxShadow: "none",
   }
 });
 
