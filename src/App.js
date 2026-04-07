@@ -15,6 +15,8 @@ import ApprovalManager from "./components/ZIpApprovalManager";
 import SheetDataViewer from "./components/ZIpApprovalManager";
 import DoriOrder from "./components/DoriOrder";
 import DoriPurchaseDashboard from "./components/DoriDashboard";
+import POasperShade from "./components/POasperShade";
+import POSummaryReport from "./components/PoSummaryReport";
 
 // Small wrapper so we can inject navigate as a prop
 function DashboardRoute() {
@@ -47,6 +49,8 @@ export default function App() {
                      <Route path="/rgp/zip-po-approval" element={<SheetDataViewer/>} />
                              <Route path="/rgp/dori-order" element={<DoriOrder/>} />
                              <Route path="/rgp/dashboard-dori-po" element={<DoriPurchaseDashboard/>} />
+                              <Route path="/rgp/po-as-per-lot-shade" element={<POasperShade/>} />
+                                 <Route path="/rgp/po-summary" element={<POSummaryReport/>} />
     </Routes>
   );
 }

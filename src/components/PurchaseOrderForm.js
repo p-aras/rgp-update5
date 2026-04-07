@@ -1,16 +1,20 @@
 // PurchaseOrderForm.jsx
 import { useEffect, useMemo, useState, useRef } from "react";
 import { jsPDF } from "jspdf";
+import "./PurchaseOrderForm.css";
 
 /** =========================
  * CONFIG
  * ========================= */
 const WEB_APP_BASE =
-  "https://script.google.com/macros/s/AKfycbwgTLaWyLWejtKNzIhLMlBi22XOsag4YabaQnzc5xuSIC-Bp6-QrQcjoHIqtaFXHuXWAA/exec";
+  "https://script.google.com/macros/s/AKfycbydY5UUXgbyseONnQvnrWldDpmxzRH_m9crbMMhyTapZZ4flbV6AztESNjmusoH1xAluA/exec";
 
 const SHEET_ID = "1hy43mDxXtGVq4jeMV_NxX25Q7tnX55NnplN7eqpT74k";
 const RANGE_A1 = "SHEET1!A1:C";
 const API_KEY = "AIzaSyAomDFBkOySlIxKWSKGHe6ATv9gvaBr7uk";
+
+// Add PO Data Range - Adjust this based on your sheet structure
+const PO_DATA_RANGE = "PO_Items!A:I"; // Change this to your actual PO data sheet name and range
 
 /** =========================
  * Local Storage Keys
@@ -20,8 +24,18 @@ const LOCAL_STORAGE_KEYS = {
   DESCRIPTIONS: "po_descriptions",
   SHADES: "po_shades",
   GST_ENABLED: "po_gst_enabled",
-  GST_PERCENTAGE: "po_gst_percentage"
+  GST_PERCENTAGE: "po_gst_percentage",
+  LAST_PO_NUMBER: "po_last_number", // Store last loaded PO number
+  // New keys for approval dropdowns
+  REQUISITION_NAMES: "po_requisition_names",
+  PREPARED_NAMES: "po_prepared_names",
+  APPROVED_NAMES: "po_approved_names",
 };
+
+// Default dropdown options
+const DEFAULT_REQUISITION_NAMES = ["JAYBIR", "NITIN KHANNA", "SONU MASTER JI", "EA"];
+const DEFAULT_PREPARED_NAMES = ["RASHMI"];
+const DEFAULT_APPROVED_NAMES = [ "SAHIL SIR", "EA", "MOHIT GOYAL"];
 
 /** =========================
  * utils
@@ -35,15 +49,11 @@ const fmtMoney = (n) =>
 // Enhanced PO Number Generation with timestamp for guaranteed uniqueness
 function makeUniquePoNumber() {
   const now = new Date();
-  // Get time components in HHMMSS format
   const hours = String(now.getHours()).padStart(2, "0");
   const minutes = String(now.getMinutes()).padStart(2, "0");
   const seconds = String(now.getSeconds()).padStart(2, "0");
-  
-  // Combine to create PO-HHMMSS format (e.g., PO-064859)
   return `PO-${hours}${minutes}${seconds}`;
 }
-
 
 const blankRow = () => ({ 
   department: "", 
@@ -53,17 +63,20 @@ const blankRow = () => ({
   qty: 0, 
   rate: 0 
 });
+
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const nowTime = () => {
   const d = new Date();
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 };
+
 const toDate = (dateStr, timeStr) => {
   if (!dateStr) return null;
   const [h, m] = (timeStr || "00:00").split(":").map((x) => parseInt(x || "0", 10));
   const [Y, M, D] = dateStr.split("-").map((x) => parseInt(x, 10));
   return new Date(Y, (M || 1) - 1, D || 1, h || 0, m || 0, 0);
 };
+
 const humanDuration = (ms) => {
   if (ms == null) return "";
   const sign = ms < 0 ? -1 : 1;
@@ -95,6 +108,128 @@ async function fetchSheetRows(sheetId, rangeA1, apiKey) {
     if (dept || item) rows.push({ dept: String(dept).trim(), item: String(item).trim(), rate: numRate });
   }
   return rows;
+}
+
+// NEW: Function to fetch PO data by PO number
+async function fetchPODataByNumber(poNumber, sheetId, apiKey) {
+  try {
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(
+      PO_DATA_RANGE
+    )}?key=${apiKey}`;
+    
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`Sheets API error: ${resp.status}`);
+    
+    const data = await resp.json();
+    const values = data.values || [];
+    
+    if (values.length < 2) {
+      throw new Error("No data found in PO sheet");
+    }
+    
+    // Parse headers
+    const headers = values[0];
+    const poNumberColIndex = headers.findIndex(h => 
+      h?.toLowerCase().includes("po") || 
+      h?.toLowerCase().includes("po number") ||
+      h === "PO #"
+    );
+    
+    const lineColIndex = headers.findIndex(h => 
+      h?.toLowerCase().includes("line") || 
+      h?.toLowerCase().includes("line #")
+    );
+    
+    const deptColIndex = headers.findIndex(h => 
+      h?.toLowerCase().includes("department") || 
+      h?.toLowerCase().includes("dept")
+    );
+    
+    const descColIndex = headers.findIndex(h => 
+      h?.toLowerCase().includes("description") || 
+      h?.toLowerCase().includes("item")
+    );
+    
+    const uomColIndex = headers.findIndex(h => 
+      h?.toLowerCase().includes("uom") || 
+      h?.toLowerCase().includes("unit")
+    );
+    
+    const qtyColIndex = headers.findIndex(h => 
+      h?.toLowerCase().includes("qty") || 
+      h?.toLowerCase().includes("quantity")
+    );
+    
+    const rateColIndex = headers.findIndex(h => 
+      h?.toLowerCase().includes("rate") || 
+      h?.toLowerCase().includes("price")
+    );
+    
+    // Find all rows matching the PO number
+    const matchingRows = [];
+    for (let i = 1; i < values.length; i++) {
+      const row = values[i];
+      if (row[poNumberColIndex] === poNumber) {
+        matchingRows.push({
+          line: row[lineColIndex] || i,
+          department: row[deptColIndex] || "",
+          description: row[descColIndex] || "",
+          uom: row[uomColIndex] || "",
+          qty: parseFloat(row[qtyColIndex]) || 0,
+          rate: parseFloat(row[rateColIndex]) || 0,
+          amount: parseFloat(row[qtyColIndex] || 0) * parseFloat(row[rateColIndex] || 0),
+        });
+      }
+    }
+    
+    if (matchingRows.length === 0) {
+      throw new Error(`No data found for PO number: ${poNumber}`);
+    }
+    
+    return matchingRows;
+  } catch (error) {
+    console.error("Error fetching PO data:", error);
+    throw error;
+  }
+}
+
+// NEW: Function to fetch all PO numbers for autocomplete
+async function fetchAllPONumbers(sheetId, apiKey) {
+  try {
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(
+      PO_DATA_RANGE
+    )}?key=${apiKey}`;
+    
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`Sheets API error: ${resp.status}`);
+    
+    const data = await resp.json();
+    const values = data.values || [];
+    
+    if (values.length < 2) return [];
+    
+    const headers = values[0];
+    const poNumberColIndex = headers.findIndex(h => 
+      h?.toLowerCase().includes("po") || 
+      h?.toLowerCase().includes("po number") ||
+      h === "PO #"
+    );
+    
+    if (poNumberColIndex === -1) return [];
+    
+    const poNumbers = new Set();
+    for (let i = 1; i < values.length; i++) {
+      const poNumber = values[i][poNumberColIndex];
+      if (poNumber && poNumber.trim()) {
+        poNumbers.add(poNumber.trim());
+      }
+    }
+    
+    return Array.from(poNumbers).sort().reverse();
+  } catch (error) {
+    console.error("Error fetching PO numbers:", error);
+    return [];
+  }
 }
 
 function downloadPdfBlob(doc, fileName) {
@@ -137,7 +272,7 @@ function buildPoQrUrls({ base = WEB_APP_BASE, poNo, orderDate, expectedDate, sup
 }
 
 /** =========================
- * Local Storage Utilities - FIXED VERSION
+ * Local Storage Utilities
  * ========================= */
 function getLocalStorageItem(key, defaultValue) {
   try {
@@ -157,62 +292,43 @@ function setLocalStorageItem(key, value) {
   }
 }
 
-// NEW: Debounced save function to prevent saving partial words
 let saveDescriptionTimeout = null;
 let saveShadeTimeout = null;
 
 function saveDescriptionWithDebounce(description) {
   if (!description || !description.trim()) return;
-  
-  // Clear previous timeout
-  if (saveDescriptionTimeout) {
-    clearTimeout(saveDescriptionTimeout);
-  }
-  
-  // Set new timeout to save after 1.5 seconds of inactivity
+  if (saveDescriptionTimeout) clearTimeout(saveDescriptionTimeout);
   saveDescriptionTimeout = setTimeout(() => {
     const trimmedValue = description.trim();
-    if (trimmedValue.length < 2) return; // Don't save very short entries
-    
+    if (trimmedValue.length < 2) return;
     const savedItems = getLocalStorageItem(LOCAL_STORAGE_KEYS.DESCRIPTIONS, []);
     if (!savedItems.includes(trimmedValue)) {
       const updatedItems = [trimmedValue, ...savedItems.filter(item => item !== trimmedValue)];
-      // Keep only last 50 items to avoid too many suggestions
       setLocalStorageItem(LOCAL_STORAGE_KEYS.DESCRIPTIONS, updatedItems.slice(0, 50));
     }
     saveDescriptionTimeout = null;
-  }, 1500); // 1.5 second delay
+  }, 1500);
 }
 
 function saveShadeWithDebounce(shade) {
   if (!shade || !shade.trim()) return;
-  
-  // Clear previous timeout
-  if (saveShadeTimeout) {
-    clearTimeout(saveShadeTimeout);
-  }
-  
-  // Set new timeout to save after 1.5 seconds of inactivity
+  if (saveShadeTimeout) clearTimeout(saveShadeTimeout);
   saveShadeTimeout = setTimeout(() => {
     const trimmedValue = shade.trim();
-    if (trimmedValue.length < 2) return; // Don't save very short entries
-    
+    if (trimmedValue.length < 2) return;
     const savedItems = getLocalStorageItem(LOCAL_STORAGE_KEYS.SHADES, []);
     if (!savedItems.includes(trimmedValue)) {
       const updatedItems = [trimmedValue, ...savedItems.filter(item => item !== trimmedValue)];
-      // Keep only last 50 items to avoid too many suggestions
       setLocalStorageItem(LOCAL_STORAGE_KEYS.SHADES, updatedItems.slice(0, 50));
     }
     saveShadeTimeout = null;
-  }, 1500); // 1.5 second delay
+  }, 1500);
 }
 
-// Manual save function for blur event
 function saveDescriptionOnBlur(description) {
   if (!description || !description.trim()) return;
   const trimmedValue = description.trim();
   if (trimmedValue.length < 2) return;
-  
   const savedItems = getLocalStorageItem(LOCAL_STORAGE_KEYS.DESCRIPTIONS, []);
   if (!savedItems.includes(trimmedValue)) {
     const updatedItems = [trimmedValue, ...savedItems.filter(item => item !== trimmedValue)];
@@ -224,7 +340,6 @@ function saveShadeOnBlur(shade) {
   if (!shade || !shade.trim()) return;
   const trimmedValue = shade.trim();
   if (trimmedValue.length < 2) return;
-  
   const savedItems = getLocalStorageItem(LOCAL_STORAGE_KEYS.SHADES, []);
   if (!savedItems.includes(trimmedValue)) {
     const updatedItems = [trimmedValue, ...savedItems.filter(item => item !== trimmedValue)];
@@ -232,8 +347,21 @@ function saveShadeOnBlur(shade) {
   }
 }
 
+// Save name to localStorage
+function saveNameToLocalStorage(key, name) {
+  if (!name || !name.trim()) return;
+  const trimmedName = name.trim();
+  if (trimmedName.length < 2) return;
+  
+  const savedNames = getLocalStorageItem(key, []);
+  if (!savedNames.includes(trimmedName)) {
+    const updatedNames = [trimmedName, ...savedNames.filter(n => n !== trimmedName)];
+    setLocalStorageItem(key, updatedNames.slice(0, 50));
+  }
+}
+
 /** =========================
- * PDF - UPDATED VERSION with GST support
+ * PDF - UPDATED VERSION with GST support and new signature fields
  * ========================= */
 function generatePurchaseOrderPDF({ payload, options = {} }) {
   const { 
@@ -247,9 +375,8 @@ function generatePurchaseOrderPDF({ payload, options = {} }) {
   
   const doc = new jsPDF({ unit: "pt", format: "a3" });
   doc.setFont("helvetica", "normal");
-  doc.setLineWidth(0.8); // Increased line width for darker borders
+  doc.setLineWidth(0.8);
 
-  // ---- Page dimensions
   const page = { 
     w: doc.internal.pageSize.getWidth(), 
     h: doc.internal.pageSize.getHeight(), 
@@ -257,7 +384,6 @@ function generatePurchaseOrderPDF({ payload, options = {} }) {
     gap: 12 
   };
 
-  // ---- Helper functions
   const setSize = (s) => doc.setFontSize(s);
   const bold = () => doc.setFont(undefined, "bold");
   const normal = () => doc.setFont(undefined, "normal");
@@ -265,14 +391,14 @@ function generatePurchaseOrderPDF({ payload, options = {} }) {
   const rtext = (t, x, y, opt = {}) => text(t, x, y, { align: "right", ...opt });
   const ctext = (t, x, y, opt = {}) => text(t, x, y, { align: "center", ...opt });
   const line = (x1, y1, x2, y2) => {
-    doc.setDrawColor(0, 0, 0); // Set line color to black
+    doc.setDrawColor(0, 0, 0);
     doc.line(x1, y1, x2, y2);
   };
   const wrap = (str, w) => doc.splitTextToSize(String(str || ""), w);
   const money = (n) =>
     (Number.isFinite(+n) ? +n : 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const roundRect = (x, y, w, h, r = 7, style = "S") => {
-    doc.setDrawColor(0, 0, 0); // Set border color to black
+    doc.setDrawColor(0, 0, 0);
     if (doc.roundedRect) {
       return doc.roundedRect(x, y, w, h, r, r, style);
     } else {
@@ -280,39 +406,27 @@ function generatePurchaseOrderPDF({ payload, options = {} }) {
     }
   };
 
-  // Helper function to draw rectangle with black border
   const drawRect = (x, y, w, h, style = "S") => {
-    doc.setDrawColor(0, 0, 0); // Set border color to black
+    doc.setDrawColor(0, 0, 0);
     doc.rect(x, y, w, h, style);
   };
 
-  // ---- Layout constants
   const SIG_H = 92;
   const QR_TITLE_H = 18;
   const QR_SIDE = qrSide || 96;
   const BOTTOM_QR_H = QR_TITLE_H + 8 + QR_SIDE + 10;
   const FOOTER_HEIGHT = BOTTOM_QR_H + 12 + SIG_H + 8;
-  
-  // Calculate where footer starts (top of the footer section)
   const FOOTER_START_Y = page.h - page.m - FOOTER_HEIGHT;
-  
-  // Space available for content (from top margin to footer start)
-  const CONTENT_MAX_Y = FOOTER_START_Y - 20; // 20px buffer above footer
+  const CONTENT_MAX_Y = FOOTER_START_Y - 20;
 
-  let y = page.m; // Current Y position
+  let y = page.m;
 
-  // ---- Function to check if we need new page for content
   const needSpaceForContent = (requiredHeight) => {
     if (y + requiredHeight > CONTENT_MAX_Y) {
-      // Draw footer on current page
       drawFooterOnPage();
-      
-      // Add new page with border
       doc.addPage();
-      doc.setDrawColor(0, 0, 0); // Set border color to black
-      roundRect(16, 16, page.w - 32, page.h - 32, 8, "S"); // Draw border
-      
-      // Reset Y position and draw header
+      doc.setDrawColor(0, 0, 0);
+      roundRect(16, 16, page.w - 32, page.h - 32, 8, "S");
       y = page.m;
       drawPageHeader();
       return true;
@@ -320,17 +434,15 @@ function generatePurchaseOrderPDF({ payload, options = {} }) {
     return false;
   };
 
-  // ---- Draw page header (title + line) on every page
   const drawPageHeader = () => {
     setSize(20);
     bold();
     text("PURCHASE ORDER", page.w / 2, y, { align: "center" });
     normal();
     line(page.m, y + 6, page.w - page.m, y + 6);
-    y += 26; // Move Y down after header
+    y += 26;
   };
 
-  // ---- Draw footer on every page
   const drawFooterOnPage = () => {
     const innerW = page.w - 2 * page.m;
     const colW = (innerW - page.gap * 2) / 3;
@@ -339,7 +451,6 @@ function generatePurchaseOrderPDF({ payload, options = {} }) {
     const sigTop = page.h - page.m - SIG_H;
     const blockTop = sigTop - 12 - BOTTOM_QR_H;
 
-    // Left small box: MATERIAL RECEIVED SCAN + QR
     roundRect(x1, blockTop, colW, BOTTOM_QR_H, 7, "S");
     setSize(10);
     bold(); text("MATERIAL RECEIVED", x1 + 10, blockTop + 14); normal();
@@ -350,74 +461,75 @@ function generatePurchaseOrderPDF({ payload, options = {} }) {
       try { doc.addImage(qrRecvImage, "PNG", qx, qy, QR_SIDE, QR_SIDE); } catch {}
     }
 
-    // Wide right box (spans two columns): REMARKS
     const bigW = colW * 2 + page.gap;
     roundRect(x2, blockTop, bigW, BOTTOM_QR_H, 7, "S");
     setSize(10);
     bold(); ctext("REMARKS", x2 + bigW / 2, blockTop + 14); normal();
     line(x2 + 10, blockTop + 18, x2 + bigW - 10, blockTop + 18);
     
-    // Add remarks text if available - PROPERLY CENTERED
     if (payload.meta?.remarks && payload.meta.remarks.trim() !== "") {
-      const remarksLines = doc.splitTextToSize(payload.meta.remarks, bigW - 60); // More padding for centering
-      
-      // Calculate starting Y position to center vertically
+      const remarksLines = doc.splitTextToSize(payload.meta.remarks, bigW - 60);
       const totalTextHeight = remarksLines.length * 12;
       const boxCenterY = blockTop + BOTTOM_QR_H / 2;
-      const textStartY = boxCenterY - totalTextHeight / 2 + 6; // Adjust for better centering
-      
-      // Ensure text doesn't start too high
+      const textStartY = boxCenterY - totalTextHeight / 2 + 6;
       const minStartY = blockTop + 28;
       const actualStartY = Math.max(textStartY, minStartY);
       
       let ry = actualStartY;
       remarksLines.forEach(lineText => {
-        if (ry < blockTop + BOTTOM_QR_H - 10) { // Ensure text stays within box
+        if (ry < blockTop + BOTTOM_QR_H - 10) {
           ctext(lineText.trim(), x2 + bigW / 2, ry);
           ry += 12;
         }
       });
     } else {
-      // Center "No remarks provided" both horizontally and vertically
       const boxCenterY = blockTop + BOTTOM_QR_H / 2;
       ctext("No remarks provided", x2 + bigW / 2, boxCenterY, { fontStyle: "italic", opacity: 0.5 });
     }
 
-    // Signatures (3 equal)
-    [x1, x2, x3].forEach((x) => roundRect(x, sigTop, colW, SIG_H, 7, "S"));
+    // Updated signature section with 4 columns
+    const sigColWidth = (innerW - page.gap * 3) / 4;
+    const xSig1 = page.m;
+    const xSig2 = xSig1 + sigColWidth + page.gap;
+    const xSig3 = xSig2 + sigColWidth + page.gap;
+    const xSig4 = xSig3 + sigColWidth + page.gap;
+
+    [xSig1, xSig2, xSig3, xSig4].forEach((x) => roundRect(x, sigTop, sigColWidth, SIG_H, 7, "S"));
+    
     bold();
-    text("PREPARED BY", x1 + 10, sigTop + 16);
-    text("APPROVED BY", x2 + 10, sigTop + 16);
-    text("SUPPLIER'S",  x3 + 10, sigTop + 16);
+    text("REQUISITION RAISED BY", xSig1 + 10, sigTop + 16);
+    text("PREPARED BY", xSig2 + 10, sigTop + 16);
+    text("APPROVED BY", xSig3 + 10, sigTop + 16);
+    text("SUPPLIER'S",  xSig4 + 10, sigTop + 16);
     normal();
 
-    const writeSig = (x, showName) => {
+    const writeSig = (x, showRequisitionName, showPreparedName, showApprovedName) => {
       const baseY = sigTop + SIG_H - 26;
       text("Signature", x + 10, baseY - 10);
-      line(x + 10, baseY - 8, x + colW - 10, baseY - 8);
+      line(x + 10, baseY - 8, x + sigColWidth - 10, baseY - 8);
       text("Name:", x + 10, baseY + 2);
-      if (showName && payload.meta?.supervisorName) text(payload.meta.supervisorName, x + 46, baseY + 2);
+      
+      if (x === xSig1 && showRequisitionName && payload.meta?.requisitionRaisedBy) {
+        text(payload.meta.requisitionRaisedBy, x + 46, baseY + 2);
+      } else if (x === xSig2 && showPreparedName && payload.meta?.preparedBy) {
+        text(payload.meta.preparedBy, x + 46, baseY + 2);
+      } else if (x === xSig3 && showApprovedName && payload.meta?.approvedBy) {
+        text(payload.meta.approvedBy, x + 46, baseY + 2);
+      }
+      
       text("Date:", x + 10, baseY + 14);
     };
-    writeSig(x1, true);
-    writeSig(x2, false);
-    writeSig(x3, false);
+    
+    writeSig(xSig1, true, false, false);
+    writeSig(xSig2, false, true, false);
+    writeSig(xSig3, false, false, true);
+    writeSig(xSig4, false, false, false);
   };
 
-  // =========================
-  // START PDF GENERATION
-  // =========================
-  
-  // Draw border on first page with black color
   doc.setDrawColor(0, 0, 0);
   roundRect(16, 16, page.w - 32, page.h - 32, 8, "S");
-  
-  // Draw header on first page
   drawPageHeader();
 
-  // =========================
-  // TOP SECTION (only on first page)
-  // =========================
   (function drawTopSection() {
     const innerW = page.w - 2 * page.m;
     const rPO = 0.44, rSup = 0.26, rGate = 0.30;
@@ -430,15 +542,29 @@ function generatePurchaseOrderPDF({ payload, options = {} }) {
     const x2 = x1 + wPO + page.gap;
     const x3 = x2 + wSup + page.gap;
 
-    const metaPad = 12, lblW = 84;
+    const metaPad = 12;
+    const labelValueGap = 20; // Increased space between label and value (was 6, now 20)
+    
     const mRows = [
       ["PO #", (payload.meta?.poNumber || "").replace(/\s+/g, "")],
       ["Order", [payload.meta?.orderDate, payload.meta?.orderTime].filter(Boolean).join(" ")],
       ...(payload.meta?.expectedDate ? [["Expected", payload.meta.expectedDate]] : []),
       ...(payload.meta?.leadTimeHuman ? [["Lead Time", payload.meta.leadTimeHuman]] : []),
-      ...(payload.meta?.supervisorName ? [["Authorized By", payload.meta.supervisorName]] : []),
+      ...(payload.meta?.requisitionRaisedBy ? [["Requisition Raised By", payload.meta.requisitionRaisedBy]] : []),
+      ...(payload.meta?.preparedBy ? [["Prepared By", payload.meta.preparedBy]] : []),
+      ...(payload.meta?.approvedBy ? [["Approved By", payload.meta.approvedBy]] : []),
     ];
-    const metaH = 22 + mRows.length * 16 + 16;
+    
+    // Calculate dynamic height based on content
+    let totalMetaHeight = 22 + 16; // header + initial spacing
+    mRows.forEach(([label, value]) => {
+      const labelWidth = doc.getTextWidth(`${label}:`);
+      const valueX = metaPad + labelWidth + labelValueGap;
+      const maxValueWidth = wPO - valueX - metaPad;
+      const valueLines = doc.splitTextToSize(value || "", maxValueWidth);
+      totalMetaHeight += 16 + (Math.max(0, valueLines.length - 1) * 16);
+    });
+    const metaH = totalMetaHeight;
 
     const supPad = 12;
     const supBodyW = wSup - supPad * 2;
@@ -451,27 +577,38 @@ function generatePurchaseOrderPDF({ payload, options = {} }) {
     const supH = 22 + supLines.filter(Boolean).length * 12 + 16;
 
     const gateH = QR_TITLE_H + 8 + QR_SIDE + 10;
-
     const blockH = Math.max(metaH, supH, gateH);
     
-    // Check if we have space for top section
-    if (needSpaceForContent(blockH)) {
-      return;
-    }
+    if (needSpaceForContent(blockH)) return;
 
-    // Draw PO DETAILS with black border
+    // PO DETAILS Box
     roundRect(x1, y, wPO, blockH, 7, "S");
     setSize(12);
     bold(); text("PO DETAILS", x1 + 12, y + 14); normal();
     line(x1 + 12, y + 18, x1 + wPO - 12, y + 18);
+    
     let my = y + 30;
     mRows.forEach(([label, value]) => {
-      bold(); text(`${label}:`, x1 + metaPad, my);
-      normal(); text(value || "", x1 + metaPad + lblW, my, { maxWidth: wPO - metaPad * 2 - lblW });
-      my += 16;
+      const labelX = x1 + metaPad;
+      const labelWidth = doc.getTextWidth(`${label}:`);
+      const valueX = labelX + labelWidth + labelValueGap; // Using larger gap
+      const maxValueWidth = wPO - (valueX - x1) - metaPad;
+      
+      bold(); text(`${label}:`, labelX, my);
+      normal();
+      
+      // Split value if too long
+      const valueLines = doc.splitTextToSize(value || "", maxValueWidth);
+      
+      // Draw value lines
+      valueLines.forEach((line, idx) => {
+        text(line, valueX, my + (idx * 16));
+      });
+      
+      my += 16 + (Math.max(0, valueLines.length - 1) * 16);
     });
 
-    // Draw SUPPLIER INFO with black border
+    // SUPPLIER Box
     roundRect(x2, y, wSup, blockH, 7, "S");
     setSize(12);
     bold(); text("SUPPLIER", x2 + 12, y + 14); normal();
@@ -479,7 +616,7 @@ function generatePurchaseOrderPDF({ payload, options = {} }) {
     let sy = y + 30;
     supLines.forEach((ln) => { if (ln) { text(ln, x2 + supPad, sy); sy += 12; } });
 
-    // Draw GATE-IN SCANNER with black border
+    // GATE IN Box
     roundRect(x3, y, wGate, blockH, 7, "S");
     setSize(11);
     bold(); text("GATE IN — SCAN (FORM)", x3 + 12, y + 14); normal();
@@ -493,281 +630,207 @@ function generatePurchaseOrderPDF({ payload, options = {} }) {
     y += blockH + 16;
   })();
 
-  // =========================
-  // TABLE SECTION - SIMPLIFIED COLUMN CALCULATION
-  // =========================
-// =========================
-// TABLE SECTION - FIXED VERSION with proper shade column handling
-// =========================
-(function drawTable() {
-  const x0 = page.m, innerW = page.w - 2 * page.m;
-  setSize(11); normal();
+  (function drawTable() {
+    const x0 = page.m, innerW = page.w - 2 * page.m;
+    setSize(11); normal();
 
-  const rows = (payload.rows || []).map((r, i) => {
-    const qStr = (+r.qty || 0).toLocaleString();
-    const rateStr = money(+r.rate || 0);
-    const amt = (+r.qty || 0) * (+r.rate || 0);
-    const amtStr = money(amt);
-    return { ...r, _i: i, _qtyStr: qStr, _rateStr: rateStr, _amtStr: amtStr };
-  });
-
-  // Calculate totals for width estimation
-  let totalSum = rows.reduce((sum, r) => sum + ((+r.qty || 0) * (+r.rate || 0)), 0);
-  const gstAmount = gstEnabled ? (totalSum * gstPercentage) / 100 : 0;
-  const grandTotal = totalSum + gstAmount;
-  
-  // DYNAMIC COLUMN WIDTH CALCULATION - Works for both with and without shade
-  // Base widths that work well for A3 (larger page)
-  const BASE_WIDTHS = {
-    line: 40,        // Line number
-    department: 120, // Department
-    description: 250, // Description (will be adjusted)
-    shade: 120,      // Shade column (only if enabled)
-    uom: 70,         // Unit of measure
-    qty: 80,         // Quantity
-    rate: 90,        // Rate
-    amount: 110      // Amount
-  };
-  
-  // Define columns based on shadeEnabled
-  let cols;
-  if (shadeEnabled) {
-    cols = [
-      { key: "line", title: "#", w: BASE_WIDTHS.line, align: "right" },
-      { key: "department", title: "DEPARTMENT", w: BASE_WIDTHS.department },
-      { key: "description", title: "DESCRIPTION", w: BASE_WIDTHS.description },
-      { key: "shade", title: "SHADE", w: BASE_WIDTHS.shade },
-      { key: "uom", title: "UOM", w: BASE_WIDTHS.uom, align: "center" },
-      { key: "qty", title: "QTY", w: BASE_WIDTHS.qty, align: "right" },
-      { key: "rate", title: "RATE", w: BASE_WIDTHS.rate, align: "right" },
-      { key: "amount", title: "AMOUNT", w: BASE_WIDTHS.amount, align: "right" },
-    ];
-  } else {
-    cols = [
-      { key: "line", title: "#", w: BASE_WIDTHS.line, align: "right" },
-      { key: "department", title: "DEPARTMENT", w: BASE_WIDTHS.department },
-      { key: "description", title: "DESCRIPTION", w: BASE_WIDTHS.description },
-      { key: "uom", title: "UOM", w: BASE_WIDTHS.uom, align: "center" },
-      { key: "qty", title: "QTY", w: BASE_WIDTHS.qty, align: "right" },
-      { key: "rate", title: "RATE", w: BASE_WIDTHS.rate, align: "right" },
-      { key: "amount", title: "AMOUNT", w: BASE_WIDTHS.amount, align: "right" },
-    ];
-  }
-  
-  // Calculate total fixed width
-  let totalFixedWidth = cols.reduce((sum, col) => sum + col.w, 0);
-  
-  // Calculate available width for description column adjustment
-  const widthDiff = innerW - totalFixedWidth;
-  
-  // Adjust description width to fit available space
-  const descColIndex = cols.findIndex(col => col.key === "description");
-  if (descColIndex >= 0 && widthDiff !== 0) {
-    // Adjust description column width
-    cols[descColIndex].w = Math.max(150, cols[descColIndex].w + widthDiff);
-    
-    // Recalculate total width after adjustment
-    totalFixedWidth = cols.reduce((sum, col) => sum + col.w, 0);
-  }
-  
-  // Re-check if we still fit within page (should always fit after adjustment)
-  if (totalFixedWidth > innerW) {
-    // If still too wide, reduce description width
-    const overflow = totalFixedWidth - innerW;
-    if (descColIndex >= 0) {
-      cols[descColIndex].w = Math.max(100, cols[descColIndex].w - overflow);
-    }
-  }
-  
-  // Calculate column X positions
-  const xs = [x0];
-  let cumulativeX = x0;
-  for (let i = 0; i < cols.length; i++) {
-    cumulativeX += cols[i].w;
-    xs.push(cumulativeX);
-  }
-
-  const headerH = 30, baseH = 24;
-
-  // Draw table header
-  const drawTableHeader = () => {
-    if (needSpaceForContent(headerH)) {
-      // We're on a new page now
-    }
-    
-    // Draw table header with black border
-    doc.setDrawColor(0, 0, 0);
-    drawRect(x0, y, innerW, headerH);
-    setSize(12); bold();
-    cols.forEach((c, i) => {
-      const cx = c.align === "right" ? xs[i + 1] - 10 : 
-                 c.align === "center" ? (xs[i] + xs[i + 1]) / 2 : 
-                 xs[i] + 10;
-      const opt = c.align === "right" ? { align: "right" } : 
-                  c.align === "center" ? { align: "center" } : 
-                  {};
-      text(c.title, cx, y + 20, opt);
-      if (i > 0) {
-        doc.setDrawColor(0, 0, 0);
-        line(xs[i], y, xs[i], y + headerH);
-      }
+    const rows = (payload.rows || []).map((r, i) => {
+      const qStr = (+r.qty || 0).toLocaleString();
+      const rateStr = money(+r.rate || 0);
+      const amt = (+r.qty || 0) * (+r.rate || 0);
+      const amtStr = money(amt);
+      return { ...r, _i: i, _qtyStr: qStr, _rateStr: rateStr, _amtStr: amtStr };
     });
-    normal(); 
-    y += headerH;
-  };
 
-  // Draw single row
-  const drawTableRow = (r, idx) => {
+    let totalSum = rows.reduce((sum, r) => sum + ((+r.qty || 0) * (+r.rate || 0)), 0);
+    const gstAmount = gstEnabled ? (totalSum * gstPercentage) / 100 : 0;
+    
+    const BASE_WIDTHS = {
+      line: 40, department: 120, description: 250, shade: 120,
+      uom: 70, qty: 80, rate: 90, amount: 110
+    };
+    
+    let cols;
+    if (shadeEnabled) {
+      cols = [
+        { key: "line", title: "#", w: BASE_WIDTHS.line, align: "right" },
+        { key: "department", title: "DEPARTMENT", w: BASE_WIDTHS.department },
+        { key: "description", title: "DESCRIPTION", w: BASE_WIDTHS.description },
+        { key: "shade", title: "SHADE", w: BASE_WIDTHS.shade },
+        { key: "uom", title: "UOM", w: BASE_WIDTHS.uom, align: "center" },
+        { key: "qty", title: "QTY", w: BASE_WIDTHS.qty, align: "right" },
+        { key: "rate", title: "RATE", w: BASE_WIDTHS.rate, align: "right" },
+        { key: "amount", title: "AMOUNT", w: BASE_WIDTHS.amount, align: "right" },
+      ];
+    } else {
+      cols = [
+        { key: "line", title: "#", w: BASE_WIDTHS.line, align: "right" },
+        { key: "department", title: "DEPARTMENT", w: BASE_WIDTHS.department },
+        { key: "description", title: "DESCRIPTION", w: BASE_WIDTHS.description },
+        { key: "uom", title: "UOM", w: BASE_WIDTHS.uom, align: "center" },
+        { key: "qty", title: "QTY", w: BASE_WIDTHS.qty, align: "right" },
+        { key: "rate", title: "RATE", w: BASE_WIDTHS.rate, align: "right" },
+        { key: "amount", title: "AMOUNT", w: BASE_WIDTHS.amount, align: "right" },
+      ];
+    }
+    
+    let totalFixedWidth = cols.reduce((sum, col) => sum + col.w, 0);
+    const widthDiff = innerW - totalFixedWidth;
     const descColIndex = cols.findIndex(col => col.key === "description");
-    const shadeColIndex = shadeEnabled ? cols.findIndex(col => col.key === "shade") : -1;
+    if (descColIndex >= 0 && widthDiff !== 0) {
+      cols[descColIndex].w = Math.max(150, cols[descColIndex].w + widthDiff);
+      totalFixedWidth = cols.reduce((sum, col) => sum + col.w, 0);
+    }
     
-    const descWidth = descColIndex >= 0 ? cols[descColIndex].w - 20 : 0;
-    const shadeWidth = shadeColIndex >= 0 ? cols[shadeColIndex].w - 20 : 0;
+    if (totalFixedWidth > innerW) {
+      const overflow = totalFixedWidth - innerW;
+      if (descColIndex >= 0) {
+        cols[descColIndex].w = Math.max(100, cols[descColIndex].w - overflow);
+      }
+    }
     
-    const descLines = doc.splitTextToSize(r.description || "", descWidth);
-    const shadeLines = shadeEnabled ? doc.splitTextToSize(r.shade || "", shadeWidth) : [];
+    const xs = [x0];
+    let cumulativeX = x0;
+    for (let i = 0; i < cols.length; i++) {
+      cumulativeX += cols[i].w;
+      xs.push(cumulativeX);
+    }
+
+    const headerH = 30, baseH = 24;
+
+    const drawTableHeader = () => {
+      if (needSpaceForContent(headerH)) {}
+      doc.setDrawColor(0, 0, 0);
+      drawRect(x0, y, innerW, headerH);
+      setSize(12); bold();
+      cols.forEach((c, i) => {
+        const cx = c.align === "right" ? xs[i + 1] - 10 : 
+                   c.align === "center" ? (xs[i] + xs[i + 1]) / 2 : 
+                   xs[i] + 10;
+        const opt = c.align === "right" ? { align: "right" } : 
+                    c.align === "center" ? { align: "center" } : 
+                    {};
+        text(c.title, cx, y + 20, opt);
+        if (i > 0) {
+          doc.setDrawColor(0, 0, 0);
+          line(xs[i], y, xs[i], y + headerH);
+        }
+      });
+      normal(); 
+      y += headerH;
+    };
+
+    const drawTableRow = (r, idx) => {
+      const descColIndex = cols.findIndex(col => col.key === "description");
+      const shadeColIndex = shadeEnabled ? cols.findIndex(col => col.key === "shade") : -1;
+      
+      const descWidth = descColIndex >= 0 ? cols[descColIndex].w - 20 : 0;
+      const shadeWidth = shadeColIndex >= 0 ? cols[shadeColIndex].w - 20 : 0;
+      
+      const descLines = doc.splitTextToSize(r.description || "", descWidth);
+      const shadeLines = shadeEnabled ? doc.splitTextToSize(r.shade || "", shadeWidth) : [];
+      
+      const rowH = Math.max(baseH, descLines.length * 14 + 10, shadeLines.length * 14 + 10);
+      
+      if (needSpaceForContent(rowH)) {
+        drawTableHeader();
+      }
+      
+      doc.setDrawColor(0, 0, 0);
+      drawRect(x0, y, innerW, rowH);
+      for (let i = 1; i < xs.length - 1; i++) {
+        doc.setDrawColor(0, 0, 0);
+        line(xs[i], y, xs[i], y + rowH);
+      }
+      const yy = y + 16;
+      
+      let colIndex = 0;
+      rtext(r.line ?? idx + 1, xs[colIndex + 1] - 10, yy);
+      colIndex++;
+      text(r.department || "", xs[colIndex] + 10, yy);
+      colIndex++;
+      descLines.forEach((ln, j) => text(ln, xs[colIndex] + 10, yy + j * 14));
+      colIndex++;
+      
+      if (shadeEnabled) {
+        if (shadeLines.length > 0) {
+          shadeLines.forEach((ln, j) => text(ln, xs[colIndex] + 10, yy + j * 14));
+        } else {
+          text(r.shade || "", xs[colIndex] + 10, yy);
+        }
+        colIndex++;
+      }
+      
+      text(r.uom || "", (xs[colIndex] + xs[colIndex + 1]) / 2, yy, { align: "center" });
+      colIndex++;
+      rtext(r._qtyStr, xs[colIndex + 1] - 10, yy);
+      colIndex++;
+      rtext(r._rateStr, xs[colIndex + 1] - 10, yy);
+      colIndex++;
+      rtext(r._amtStr, xs[colIndex + 1] - 10, yy);
+      
+      y += rowH;
+      return (+r.qty || 0) * (+r.rate || 0);
+    };
+
+    drawTableHeader();
+    totalSum = 0;
+    rows.forEach((r, i) => {
+      totalSum += drawTableRow(r, i);
+    });
     
-    const rowH = Math.max(baseH, descLines.length * 14 + 10, shadeLines.length * 14 + 10);
+    const finalGstAmount = gstEnabled ? (totalSum * gstPercentage) / 100 : 0;
+    const finalGrandTotal = totalSum + finalGstAmount;
+    const rateColIndex = cols.findIndex(col => col.key === "rate");
     
-    if (needSpaceForContent(rowH)) {
+    const subtotalH = 26;
+    if (needSpaceForContent(subtotalH + (gstEnabled ? 26 : 0) + 30)) {
       drawTableHeader();
     }
     
-    // Draw row with black border
-    doc.setDrawColor(0, 0, 0);
-    drawRect(x0, y, innerW, rowH);
-    for (let i = 1; i < xs.length - 1; i++) {
-      doc.setDrawColor(0, 0, 0);
-      line(xs[i], y, xs[i], y + rowH);
-    }
-    const yy = y + 16;
-    
-    // Draw cell contents
-    let colIndex = 0;
-    
-    // Line #
-    rtext(r.line ?? idx + 1, xs[colIndex + 1] - 10, yy);
-    colIndex++;
-    
-    // Department
-    text(r.department || "", xs[colIndex] + 10, yy);
-    colIndex++;
-    
-    // Description
-    descLines.forEach((ln, j) => text(ln, xs[colIndex] + 10, yy + j * 14));
-    colIndex++;
-    
-    // Shade (if enabled)
-    if (shadeEnabled) {
-      if (shadeLines.length > 0) {
-        shadeLines.forEach((ln, j) => text(ln, xs[colIndex] + 10, yy + j * 14));
-      } else {
-        text(r.shade || "", xs[colIndex] + 10, yy);
-      }
-      colIndex++;
-    }
-    
-    // UOM
-    text(r.uom || "", (xs[colIndex] + xs[colIndex + 1]) / 2, yy, { align: "center" });
-    colIndex++;
-    
-    // Quantity
-    rtext(r._qtyStr, xs[colIndex + 1] - 10, yy);
-    colIndex++;
-    
-    // Rate
-    rtext(r._rateStr, xs[colIndex + 1] - 10, yy);
-    colIndex++;
-    
-    // Amount
-    rtext(r._amtStr, xs[colIndex + 1] - 10, yy);
-    
-    y += rowH;
-    return (+r.qty || 0) * (+r.rate || 0);
-  };
-
-  // Draw initial table header
-  drawTableHeader();
-  
-  // Reset totalSum calculation
-  totalSum = 0;
-  rows.forEach((r, i) => {
-    totalSum += drawTableRow(r, i);
-  });
-  
-  // Draw total rows with GST calculation
-  const finalGstAmount = gstEnabled ? (totalSum * gstPercentage) / 100 : 0;
-  const finalGrandTotal = totalSum + finalGstAmount;
-  
-  // Find the amount column index for drawing lines
-  const amountColIndex = cols.findIndex(col => col.key === "amount");
-  const rateColIndex = cols.findIndex(col => col.key === "rate");
-  
-  // Subtotal row
-  const subtotalH = 26;
-  if (needSpaceForContent(subtotalH + (gstEnabled ? 26 : 0) + 30)) {
-    drawTableHeader();
-  }
-  
-  doc.setDrawColor(0, 0, 0);
-  drawRect(x0, y, innerW, subtotalH);
-  
-  // Draw vertical line before amount column
-  if (rateColIndex >= 0) {
-    doc.setDrawColor(0, 0, 0);
-    line(xs[rateColIndex], y, xs[rateColIndex], y + subtotalH);
-  }
-  
-  setSize(12); bold();
-  text("SUBTOTAL", x0 + 10, y + 18);
-  rtext(money(totalSum), xs[xs.length - 1] - 10, y + 18);
-  normal(); 
-  y += subtotalH;
-  
-  // GST row (if enabled)
-  if (gstEnabled) {
     doc.setDrawColor(0, 0, 0);
     drawRect(x0, y, innerW, subtotalH);
-    
-    // Draw vertical line before amount column
     if (rateColIndex >= 0) {
       doc.setDrawColor(0, 0, 0);
       line(xs[rateColIndex], y, xs[rateColIndex], y + subtotalH);
     }
-    
     setSize(12); bold();
-    text(`GST ${gstPercentage}%`, x0 + 10, y + 18);
-    rtext(money(finalGstAmount), xs[xs.length - 1] - 10, y + 18);
+    text("SUBTOTAL", x0 + 10, y + 18);
+    rtext(money(totalSum), xs[xs.length - 1] - 10, y + 18);
     normal(); 
     y += subtotalH;
-  }
-  
-  // Grand Total row
-  const totalH = 30;
-  doc.setDrawColor(0, 0, 0);
-  drawRect(x0, y, innerW, totalH);
-  
-  // Draw vertical line before amount column
-  if (rateColIndex >= 0) {
+    
+    if (gstEnabled) {
+      doc.setDrawColor(0, 0, 0);
+      drawRect(x0, y, innerW, subtotalH);
+      if (rateColIndex >= 0) {
+        doc.setDrawColor(0, 0, 0);
+        line(xs[rateColIndex], y, xs[rateColIndex], y + subtotalH);
+      }
+      setSize(12); bold();
+      text(`GST ${gstPercentage}%`, x0 + 10, y + 18);
+      rtext(money(finalGstAmount), xs[xs.length - 1] - 10, y + 18);
+      normal(); 
+      y += subtotalH;
+    }
+    
+    const totalH = 30;
     doc.setDrawColor(0, 0, 0);
-    line(xs[rateColIndex], y, xs[rateColIndex], y + totalH);
-  }
-  
-  setSize(14); bold();
-  text(gstEnabled ? "GRAND TOTAL" : "TOTAL", x0 + 10, y + 20);
-  rtext(money(finalGrandTotal), xs[xs.length - 1] - 12, y + 20);
-  normal(); 
-  y += totalH;
-})();
+    drawRect(x0, y, innerW, totalH);
+    if (rateColIndex >= 0) {
+      doc.setDrawColor(0, 0, 0);
+      line(xs[rateColIndex], y, xs[rateColIndex], y + totalH);
+    }
+    setSize(14); bold();
+    text(gstEnabled ? "GRAND TOTAL" : "TOTAL", x0 + 10, y + 20);
+    rtext(money(finalGrandTotal), xs[xs.length - 1] - 12, y + 20);
+    normal(); 
+    y += totalH;
+  })();
 
-  // =========================
-  // FINAL FOOTER
-  // =========================
   drawFooterOnPage();
-
   return doc;
 }
-
 /** =========================
  * POST helper — strict ok/json.ok handling + 429 backoff
  * ========================= */
@@ -811,6 +874,120 @@ async function postPOToSheet(webAppUrl, payload, { maxRetries = 3 } = {}) {
 }
 
 /** =========================
+ * Custom Dropdown Component with ability to add new values
+ * ========================= */
+// SmartDropdown Component - Fixed version
+function SmartDropdown({ 
+  value, 
+  onChange, 
+  options = [], 
+  placeholder = "Select or type...",
+  onSaveToLocalStorage,
+  localStorageKey,
+  required = false
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [inputValue, setInputValue] = useState(value || "");
+  const [filteredOptions, setFilteredOptions] = useState(options);
+  const dropdownRef = useRef(null);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    setInputValue(value || "");
+  }, [value]);
+
+  useEffect(() => {
+    // Show all options when input is empty, otherwise filter
+    if (!inputValue || inputValue.trim() === "") {
+      setFilteredOptions(options);
+    } else {
+      const filtered = options.filter(opt => 
+        opt.toLowerCase().includes(inputValue.toLowerCase())
+      );
+      setFilteredOptions(filtered);
+    }
+  }, [inputValue, options]);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleInputChange = (e) => {
+    const newValue = e.target.value;
+    setInputValue(newValue);
+    onChange(newValue);
+    setIsOpen(true);
+  };
+
+  const handleSelectOption = (option) => {
+    setInputValue(option);
+    onChange(option);
+    setIsOpen(false);
+    if (onSaveToLocalStorage && localStorageKey) {
+      saveNameToLocalStorage(localStorageKey, option);
+      onSaveToLocalStorage();
+    }
+  };
+
+  const handleBlur = () => {
+    // Small delay to allow click events on dropdown options to fire first
+    setTimeout(() => {
+      if (inputValue && inputValue.trim() && onSaveToLocalStorage && localStorageKey) {
+        saveNameToLocalStorage(localStorageKey, inputValue);
+        onSaveToLocalStorage();
+      }
+    }, 200);
+  };
+
+  const handleFocus = () => {
+    setIsOpen(true);
+    // Refresh filtered options to show all when focusing
+    if (!inputValue || inputValue.trim() === "") {
+      setFilteredOptions(options);
+    }
+  };
+
+  return (
+    <div className="smart-dropdown" ref={dropdownRef}>
+      <input
+        ref={inputRef}
+        type="text"
+        className={`form-input ${required && !value ? 'required-field' : ''}`}
+        value={inputValue}
+        onChange={handleInputChange}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        placeholder={placeholder}
+        autoComplete="off"
+        required={required}
+      />
+      {required && !value && (
+        <div className="field-required-message">This field is required</div>
+      )}
+      {isOpen && filteredOptions.length > 0 && (
+        <div className="dropdown-options">
+          {filteredOptions.map((option, index) => (
+            <div
+              key={index}
+              className="dropdown-option"
+              onClick={() => handleSelectOption(option)}
+            >
+              {option}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** =========================
  * COMPONENT
  * ========================= */
 export default function PurchaseOrderForm({
@@ -834,10 +1011,32 @@ export default function PurchaseOrderForm({
   const [rows, setRows] = useState([blankRow()]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSupervisorDialog, setShowSupervisorDialog] = useState(false);
-  const [supervisorName, setSupervisorName] = useState("");
+  
+  // New state for Requisition Raised By and Authorized By
+  const [requisitionRaisedBy, setRequisitionRaisedBy] = useState("");
+  const [preparedBy, setPreparedBy] = useState("");
+  const [approvedBy, setApprovedBy] = useState("");
   const [remarks, setRemarks] = useState("");
   
-  // New state for shade feature
+  // Saved names for dropdowns
+  const [savedRequisitionNames, setSavedRequisitionNames] = useState(() => 
+    getLocalStorageItem(LOCAL_STORAGE_KEYS.REQUISITION_NAMES, DEFAULT_REQUISITION_NAMES)
+  );
+  const [savedPreparedNames, setSavedPreparedNames] = useState(() => 
+    getLocalStorageItem(LOCAL_STORAGE_KEYS.PREPARED_NAMES, DEFAULT_PREPARED_NAMES)
+  );
+  const [savedApprovedNames, setSavedApprovedNames] = useState(() => 
+    getLocalStorageItem(LOCAL_STORAGE_KEYS.APPROVED_NAMES, DEFAULT_APPROVED_NAMES)
+  );
+  
+  // New state for PO loading
+  const [searchPoNumber, setSearchPoNumber] = useState("");
+  const [isLoadingPO, setIsLoadingPO] = useState(false);
+  const [availablePONumbers, setAvailablePONumbers] = useState([]);
+  const [showLoadDialog, setShowLoadDialog] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  
+  // State for shade feature
   const [shadeEnabled, setShadeEnabled] = useState(() => 
     getLocalStorageItem(LOCAL_STORAGE_KEYS.SHADE_ENABLED, false)
   );
@@ -848,7 +1047,7 @@ export default function PurchaseOrderForm({
     getLocalStorageItem(LOCAL_STORAGE_KEYS.SHADES, [])
   );
   
-  // New state for GST feature
+  // State for GST feature
   const [gstEnabled, setGstEnabled] = useState(() => 
     getLocalStorageItem(LOCAL_STORAGE_KEYS.GST_ENABLED, false)
   );
@@ -863,35 +1062,90 @@ export default function PurchaseOrderForm({
 
   const printableRef = useRef(null);
 
-const UOM_OPTIONS = [
-  // Count
-  "PCS","SET","PAIR","DOZEN","GROSS","NOS","UNIT",
+  const UOM_OPTIONS = [
+    "PCS","SET","PAIR","DOZEN","GROSS","NOS","UNIT",
+    "MG","GRAM","KG","QUINTAL","TON",
+    "MM","CM","MTR","INCH","FEET","YARD","KM",
+    "SQMM","SQCM","SQM","SQFT","SQYD","SFT",
+    "ML","LTR","KL","CC","CUM",
+    "ROLL","BUNDLE","BOX","PACK","BAG","SACK","CARTON","PALLET",
+    "MTRS","KGS","CONES","HANK","BALE",
+    "SEC","MIN","HOUR","DAY","WEEK","MONTH",
+    "JOB","SHIFT","LOT","ORDER","LOAD"
+  ];
 
-  // Weight
-  "MG","GRAM","KG","QUINTAL","TON",
+  // Load available PO numbers on component mount
+  useEffect(() => {
+    loadAvailablePONumbers();
+  }, []);
 
-  // Length
-  "MM","CM","MTR","INCH","FEET","YARD","KM",
+  // Load last used PO number from localStorage
+  useEffect(() => {
+    const lastPO = getLocalStorageItem(LOCAL_STORAGE_KEYS.LAST_PO_NUMBER, "");
+    if (lastPO) {
+      setSearchPoNumber(lastPO);
+    }
+  }, []);
 
-  // Area
-  "SQMM","SQCM","SQM","SQFT","SQYD","SFT",
+  async function loadAvailablePONumbers() {
+    try {
+      const poNumbers = await fetchAllPONumbers(SHEET_ID, API_KEY);
+      setAvailablePONumbers(poNumbers);
+    } catch (error) {
+      console.error("Error loading PO numbers:", error);
+    }
+  }
 
-  // Volume
-  "ML","LTR","KL","CC","CUM",
+  // Function to load PO data
+  async function handleLoadPO() {
+    if (!searchPoNumber.trim()) {
+      setLoadError("Please enter a PO number");
+      return;
+    }
+    
+    setIsLoadingPO(true);
+    setLoadError("");
+    
+    try {
+      const poData = await fetchPODataByNumber(searchPoNumber, SHEET_ID, API_KEY);
+      
+      if (poData && poData.length > 0) {
+        const loadedRows = poData.map(item => ({
+          department: item.department || "",
+          description: item.description || "",
+          shade: "",
+          uom: item.uom || "",
+          qty: item.qty || 0,
+          rate: item.rate || 0
+        }));
+        
+        setRows(loadedRows);
+        setLocalStorageItem(LOCAL_STORAGE_KEYS.LAST_PO_NUMBER, searchPoNumber);
+        alert(`Successfully loaded PO ${searchPoNumber} with ${poData.length} items`);
+        setShowLoadDialog(false);
+        setSearchPoNumber("");
+      } else {
+        setLoadError("No items found for this PO number");
+      }
+    } catch (error) {
+      setLoadError(error.message || "Failed to load PO data");
+    } finally {
+      setIsLoadingPO(false);
+    }
+  }
 
-  // Packaging
-  "ROLL","BUNDLE","BOX","PACK","BAG","SACK","CARTON","PALLET",
+  const openLoadDialog = () => {
+    setShowLoadDialog(true);
+    setSearchPoNumber("");
+    setLoadError("");
+  };
 
-  // Fabric / Garment specific
-  "MTRS","KGS","CONES","HANK","BALE",
-
-  // Time / Work
-  "SEC","MIN","HOUR","DAY","WEEK","MONTH",
-
-  // Job / Service
-  "JOB","SHIFT","LOT","ORDER","LOAD"
-];
-
+  // Refresh saved names from localStorage
+  const refreshSavedNames = () => {
+    setSavedRequisitionNames(getLocalStorageItem(LOCAL_STORAGE_KEYS.REQUISITION_NAMES, DEFAULT_REQUISITION_NAMES));
+    setSavedPreparedNames(getLocalStorageItem(LOCAL_STORAGE_KEYS.PREPARED_NAMES, DEFAULT_PREPARED_NAMES));
+    setSavedApprovedNames(getLocalStorageItem(LOCAL_STORAGE_KEYS.APPROVED_NAMES, DEFAULT_APPROVED_NAMES));
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -911,18 +1165,15 @@ const UOM_OPTIONS = [
     };
   }, []);
 
-  // Save shade enabled state to localStorage
   useEffect(() => {
     setLocalStorageItem(LOCAL_STORAGE_KEYS.SHADE_ENABLED, shadeEnabled);
   }, [shadeEnabled]);
 
-  // Save GST state to localStorage
   useEffect(() => {
     setLocalStorageItem(LOCAL_STORAGE_KEYS.GST_ENABLED, gstEnabled);
     setLocalStorageItem(LOCAL_STORAGE_KEYS.GST_PERCENTAGE, gstPercentage);
   }, [gstEnabled, gstPercentage]);
 
-  // Load saved descriptions and shades on mount
   useEffect(() => {
     setSavedDescriptions(getLocalStorageItem(LOCAL_STORAGE_KEYS.DESCRIPTIONS, []));
     setSavedShades(getLocalStorageItem(LOCAL_STORAGE_KEYS.SHADES, []));
@@ -945,15 +1196,6 @@ const UOM_OPTIONS = [
     return obj;
   }, [sheetRows]);
 
-  const rateByItem = useMemo(() => {
-    const m = new Map();
-    sheetRows.forEach(({ item, rate }) => {
-      if (!item) return;
-      m.set(item, Number(rate) || 0);
-    });
-    return m;
-  }, [sheetRows]);
-
   const rowAmount = (r) => (+r.qty || 0) * (+r.rate || 0);
 
   const totals = useMemo(() => {
@@ -974,10 +1216,10 @@ const UOM_OPTIONS = [
     };
   }, [rows, gstEnabled, gstPercentage]);
 
-  const orderDT    = toDate(orderDate, orderTime);
+  const orderDT = toDate(orderDate, orderTime);
   const expectedDT = toDate(expectedDate, expectedTime);
-  const leadMs     = orderDT && expectedDT ? expectedDT - orderDT : null;
-  const leadHuman  = humanDuration(leadMs);
+  const leadMs = orderDT && expectedDT ? expectedDT - orderDT : null;
+  const leadHuman = humanDuration(leadMs);
 
   const updateRow = (idx, patch) => {
     setRows((prev) => {
@@ -993,20 +1235,42 @@ const UOM_OPTIONS = [
   const removeRow = (idx) =>
     setRows((r) => (r.length === 1 ? [blankRow()] : r.filter((_, i) => i !== idx)));
 
+  // Enhanced validation with required fields
   const validate = () => {
     const errs = [];
+    
+    // Required field validations
     if (!WEB_APP_BASE.includes("/exec")) errs.push("WEB_APP_BASE must be a deployed /exec URL.");
     if (!poNumber.trim()) errs.push("PO Number is required.");
-    if (!supplierName.trim()) errs.push("Supplier is required.");
+    if (!supplierName.trim()) errs.push("Supplier Name is required.");
+    if (!orderDate) errs.push("Order Date is required.");
+    if (!orderTime) errs.push("Order Time is required.");
     
-    // CHANGED: Removed rate validation - allow zero rates and manual entries
-    const hasValidLine = rows.some(
-      (r) => r.department && r.description && (+r.qty || 0) > 0
-    );
-    if (!hasValidLine)
-      errs.push("At least one line with Department, Item, and Qty > 0 is required.");
+    // Validate at least one valid line item
+    let hasValidLine = false;
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const lineErrors = [];
+      
+      if (!r.department) lineErrors.push(`Line ${i + 1}: Department is required`);
+      if (!r.description) lineErrors.push(`Line ${i + 1}: Description is required`);
+      if (!r.uom) lineErrors.push(`Line ${i + 1}: UOM is required`);
+      if (!r.qty || (+r.qty || 0) <= 0) lineErrors.push(`Line ${i + 1}: Quantity must be greater than 0`);
+      // Rate validation removed - no longer required
+      // if (!r.rate || (+r.rate || 0) <= 0) lineErrors.push(`Line ${i + 1}: Rate must be greater than 0`);
+      
+      if (lineErrors.length === 0) {
+        hasValidLine = true;
+      } else {
+        errs.push(...lineErrors);
+      }
+    }
+    
+    if (!hasValidLine) errs.push("At least one complete line item with Department, Description, UOM, and Qty > 0 is required.");
+    
     if (orderDT && expectedDT && expectedDT < orderDT)
       errs.push("Expected Material Date/Time cannot be before Order Date/Time.");
+    
     return errs;
   };
 
@@ -1021,7 +1285,9 @@ const UOM_OPTIONS = [
       expectedDateTimeISO: expectedDT ? expectedDT.toISOString() : null,
       leadTimeMs: leadMs,
       leadTimeHuman: leadHuman || null,
-      supervisorName: extraMeta.supervisorName || null,
+      requisitionRaisedBy: requisitionRaisedBy || null,
+      preparedBy: preparedBy || null,
+      approvedBy: approvedBy || null,
       remarks: remarks || "",
       createdAt: new Date().toISOString(),
       shadeEnabled,
@@ -1034,7 +1300,7 @@ const UOM_OPTIONS = [
       line: i + 1,
       department: r.department,
       description: r.description,
-      shade: r.shade || "", // Include shade in rows
+      shade: r.shade || "",
       uom: r.uom,
       qty: +r.qty || 0,
       rate: +r.rate || 0,
@@ -1046,7 +1312,7 @@ const UOM_OPTIONS = [
 
   async function handleSave() {
     const errs = validate();
-    if (errs.length) return alert(errs.join("\n"));
+    if (errs.length) return alert("Please fix the following issues:\n\n" + errs.join("\n"));
     const payload = makePayload();
     const res = await postPOToSheet(WEB_APP_BASE, payload);
     if (!res.ok) {
@@ -1059,28 +1325,34 @@ const UOM_OPTIONS = [
     }
     onSave(payload);
     alert(`Saved PO ${payload.meta.poNumber} to Google Sheet ✅`);
-    
-    // ✅ Optional: Reset form after save too
     resetForm();
   }
 
   const handleOpenSubmitDialog = () => {
     const errs = validate();
-    if (errs.length) return alert(errs.join("\n"));
+    if (errs.length) return alert("Please fix the following issues:\n\n" + errs.join("\n"));
     setShowSupervisorDialog(true);
   };
 
-  /** SUBMIT: save to sheet → build QR (action=gate/receive) → PDF */
   async function handleConfirmSubmit() {
     if (isSubmitting) return;
-    const name = (supervisorName || "").trim();
-    if (!name) return alert("Please enter Supervisor Name.");
+    
+    // VALIDATION: Make all three approval fields mandatory
+    if (!requisitionRaisedBy || !requisitionRaisedBy.trim()) {
+      return alert("Requisition Raised By is required. Please enter the name of the person raising the requisition.");
+    }
+    if (!preparedBy || !preparedBy.trim()) {
+      return alert("Prepared By is required. Please enter the name of the person preparing this PO.");
+    }
+    if (!approvedBy || !approvedBy.trim()) {
+      return alert("Authorized By is required. Please enter the name of the authorizing person.");
+    }
 
     setIsSubmitting(true);
     setShowSupervisorDialog(false);
 
     try {
-      const payload = makePayload({ supervisorName: name });
+      const payload = makePayload({});
       const res = await postPOToSheet(WEB_APP_BASE, payload);
       if (!res.ok) {
         const msg =
@@ -1097,7 +1369,7 @@ const UOM_OPTIONS = [
         poNo,
         orderDate: payload.meta.orderDate,
         expectedDate: payload.meta.expectedDate,
-        supervisorName: name,
+        supervisorName: preparedBy || approvedBy || requisitionRaisedBy,
       });
 
       const [gateQR, recvQR] = await Promise.all([
@@ -1118,10 +1390,7 @@ const UOM_OPTIONS = [
       });
       downloadPdfBlob(doc, `${payload.meta.poNumber}.pdf`);
       onSubmitForApproval(payload);
-      
-      // ✅ RESET ALL FIELDS AFTER SUCCESSFUL SUBMISSION
       resetForm();
-      
     } catch (e) {
       alert(e.message || String(e));
     } finally {
@@ -1129,21 +1398,24 @@ const UOM_OPTIONS = [
     }
   }
 
-  // ✅ ADD THIS FUNCTION: Reset all fields to blank
   const resetForm = () => {
-    setPoNumber(makeUniquePoNumber()); // Generate new PO number
-    setOrderDate(todayISO()); // Reset to today's date
-    setOrderTime(nowTime()); // Reset to current time
-    setExpectedDate(""); // Blank expected date
-    setExpectedTime(""); // Blank expected time
-    setSupplierName(""); // Blank supplier name
-    setRows([blankRow()]); // Reset to one blank row
-    setSupervisorName(""); // Blank supervisor name
-    setRemarks(""); // Reset remarks
+    setPoNumber(makeUniquePoNumber());
+    setOrderDate(todayISO());
+    setOrderTime(nowTime());
+    setExpectedDate("");
+    setExpectedTime("");
+    setSupplierName("");
+    setRows([blankRow()]);
+    setRequisitionRaisedBy("");
+    setPreparedBy("");
+    setApprovedBy("");
+    setRemarks("");
   };
 
-  /** PDF preview without saving — uses action=gate/receive URLs */
   async function handleDownloadPdf() {
+    const errs = validate();
+    if (errs.length) return alert("Please fix the following issues before downloading:\n\n" + errs.join("\n"));
+    
     const payload = makePayload();
     const poNo = payload.meta.poNumber;
 
@@ -1152,7 +1424,7 @@ const UOM_OPTIONS = [
       poNo,
       orderDate: payload.meta.orderDate,
       expectedDate: payload.meta.expectedDate,
-      supervisorName, // optional
+      supervisorName: preparedBy || approvedBy || requisitionRaisedBy,
     });
 
     const [gateQR, recvQR] = await Promise.all([
@@ -1174,23 +1446,18 @@ const UOM_OPTIONS = [
     downloadPdfBlob(doc, `${poNumber}.pdf`);
   }
 
-  // Regenerate PO Number with new timestamp
   const regeneratePoNumber = () => {
     setPoNumber(makeUniquePoNumber());
   };
 
-  // Toggle shade feature
   const toggleShadeEnabled = () => {
     const newState = !shadeEnabled;
     setShadeEnabled(newState);
-    
-    // If disabling shade, clear shade values from all rows
     if (!newState) {
       setRows(rows.map(row => ({ ...row, shade: "" })));
     }
   };
 
-  // Toggle GST feature
   const handleGstToggle = () => {
     if (!gstEnabled) {
       setShowGstDialog(true);
@@ -1208,34 +1475,29 @@ const UOM_OPTIONS = [
     setShowGstDialog(false);
   };
 
-  // Handle description input change with debouncing
   const handleDescriptionChange = (idx, value) => {
     updateRow(idx, { description: value });
     saveDescriptionWithDebounce(value);
   };
 
-  // Handle shade input change with debouncing
   const handleShadeChange = (idx, value) => {
     updateRow(idx, { shade: value });
     saveShadeWithDebounce(value);
   };
 
-  // Handle back navigation
   const handleBackNavigation = () => {
     if (window.history.length > 1) {
       window.history.back();
     } else {
-      // If there's no history, redirect to home or previous page
       window.location.href = "/";
     }
   };
 
-  function UomSelect({ value, onChange, disabled }) {
-    const UOMS = UOM_OPTIONS;
-    const hasCustom = value && !UOMS.includes(String(value).toUpperCase());
+  function UomSelect({ value, onChange, disabled, required = true }) {
+    const hasCustom = value && !UOM_OPTIONS.includes(String(value).toUpperCase());
     return (
       <select
-        className="uom-select"
+        className={`uom-select ${required && !value ? 'required-field' : ''}`}
         value={hasCustom ? "__custom__" : value || ""}
         onChange={(e) => {
           const v = e.target.value;
@@ -1246,9 +1508,10 @@ const UOM_OPTIONS = [
           } else onChange(v);
         }}
         disabled={disabled}
+        required={required}
       >
-        <option value="">Select UOM</option>
-        {UOMS.map((u) => (
+        <option value="">Select UOM *</option>
+        {UOM_OPTIONS.map((u) => (
           <option key={u} value={u}>
             {u}
           </option>
@@ -1260,776 +1523,23 @@ const UOM_OPTIONS = [
 
   return (
     <div className="modern-po">
-      <style>{`
-        .modern-po {
-          min-height: 100vh;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          padding: 0;
-          font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-          position: relative;
-          overflow-x: hidden;
-        }
-
-        .modern-po::before {
-          content: '';
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          height: 300px;
-          background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-          z-index: 0;
-        }
-
-        .po-container {
-          max-width: 2100px;
-          margin: 0 auto;
-          background: white;
-          border-radius: 24px;
-          box-shadow: 
-            0 25px 50px -12px rgba(0, 0, 0, 0.25),
-            0 0 0 1px rgba(255, 255, 255, 0.1);
-          overflow: hidden;
-          position: relative;
-          z-index: 1;
-          margin-top: 40px;
-          margin-bottom: 40px;
-        }
-
-        .po-header {
-          background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-          color: white;
-          padding: 32px 40px;
-          position: relative;
-          overflow: hidden;
-        }
-
-        .po-header::before {
-          content: '';
-          position: absolute;
-          top: 0;
-          right: 0;
-          width: 200px;
-          height: 200px;
-          background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0) 70%);
-          border-radius: 50%;
-        }
-
-        .header-content {
-          position: relative;
-          z-index: 2;
-        }
-
-        .po-title {
-          font-size: 32px;
-          font-weight: 800;
-          margin-bottom: 8px;
-          background: linear-gradient(135deg, #fff 0%, #e0e7ff 100%);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          background-clip: text;
-        }
-
-        .po-subtitle {
-          font-size: 16px;
-          opacity: 0.9;
-          font-weight: 500;
-        }
-
-        .po-content {
-          padding: 0;
-        }
-
-        .content-grid {
-          display: grid;
-          grid-template-columns: 300px 1fr;
-          min-height: 800px;
-        }
-
-        .sidebar {
-          background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
-          border-right: 1px solid #e2e8f0;
-          padding: 32px 24px;
-        }
-
-        .nav-section {
-          margin-bottom: 32px;
-        }
-
-        .nav-title {
-          font-size: 12px;
-          font-weight: 700;
-          color: #64748b;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-          margin-bottom: 16px;
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-
-        .nav-title::before {
-          content: '';
-          width: 3px;
-          height: 12px;
-          background: #4f46e5;
-          border-radius: 2px;
-        }
-
-        .nav-item {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          padding: 12px 16px;
-          border-radius: 12px;
-          color: #475569;
-          font-weight: 500;
-          transition: all 0.2s ease;
-          cursor: pointer;
-          margin-bottom: 8px;
-        }
-
-        .nav-item:hover {
-          background: rgba(99, 102, 241, 0.1);
-          color: #4f46e5;
-          transform: translateX(4px);
-        }
-
-        .nav-item.active {
-          background: #4f46e5;
-          color: white;
-          box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
-        }
-
-        .nav-icon {
-          width: 20px;
-          height: 20px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        .main-content {
-          padding: 32px 40px;
-          background: #ffffff;
-        }
-
-        .section-card {
-          background: white;
-          border: 1px solid #e2e8f0;
-          border-radius: 20px;
-          padding: 32px;
-          margin-bottom: 24px;
-          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-          transition: all 0.3s ease;
-        }
-
-        .section-card:hover {
-          box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
-          transform: translateY(-2px);
-        }
-
-        .section-header {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          margin-bottom: 24px;
-        }
-
-        .section-icon {
-          width: 48px;
-          height: 48px;
-          background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-          border-radius: 12px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: white;
-          font-size: 20px;
-        }
-
-        .section-title {
-          font-size: 20px;
-          font-weight: 700;
-          color: #1e293b;
-        }
-
-        .section-subtitle {
-          font-size: 14px;
-          color: #64748b;
-          margin-top: 4px;
-        }
-
-        .form-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-          gap: 20px;
-        }
-
-        .form-group {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-
-        .form-label {
-          font-size: 14px;
-          font-weight: 600;
-          color: #374151;
-          display: flex;
-          align-items: center;
-          gap: 6px;
-        }
-
-        .form-label::before {
-          content: '';
-          width: 4px;
-          height: 4px;
-          background: #4f46e5;
-          border-radius: 50%;
-        }
-
-        .form-input, .form-select, .form-textarea {
-          padding: 14px 16px;
-          border: 2px solid #f1f5f9;
-          border-radius: 12px;
-          font-size: 15px;
-          transition: all 0.2s ease;
-          background: #f8fafc;
-          font-family: inherit;
-        }
-
-        .form-textarea {
-          min-height: 100px;
-          resize: vertical;
-        }
-
-        .form-input:focus, .form-select:focus, .form-textarea:focus {
-          outline: none;
-          border-color: #4f46e5;
-          background: white;
-          box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1);
-          transform: translateY(-1px);
-        }
-
-        .po-number-group {
-          display: flex;
-          gap: 12px;
-          align-items: flex-start;
-        }
-
-        .regenerate-btn {
-          padding: 14px 16px;
-          background: #f1f5f9;
-          border: 2px solid #e2e8f0;
-          border-radius: 12px;
-          cursor: pointer;
-          transition: all 0.2s ease;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        .regenerate-btn:hover {
-          background: #4f46e5;
-          border-color: #4f46e5;
-          color: white;
-          transform: scale(1.05);
-        }
-
-        .total-card {
-          background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-          color: white;
-          border-radius: 16px;
-          padding: 24px;
-          margin-bottom: 24px;
-          box-shadow: 0 8px 25px rgba(16, 185, 129, 0.3);
-        }
-
-        .total-label {
-          font-size: 14px;
-          font-weight: 600;
-          opacity: 0.9;
-          margin-bottom: 8px;
-        }
-
-        .total-amount {
-          font-size: 32px;
-          font-weight: 800;
-        }
-
-        .gst-breakdown {
-          background: rgba(255, 255, 255, 0.1);
-          border-radius: 12px;
-          padding: 16px;
-          margin-top: 12px;
-        }
-
-        .gst-line {
-          display: flex;
-          justify-content: space-between;
-          margin-bottom: 8px;
-          font-size: 14px;
-        }
-
-        .gst-line.total {
-          font-weight: 700;
-          font-size: 16px;
-          border-top: 1px solid rgba(255, 255, 255, 0.2);
-          padding-top: 12px;
-          margin-top: 12px;
-        }
-
-        .table-container {
-          border-radius: 16px;
-          border: 1px solid #e2e8f0;
-          overflow: hidden;
-          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-        }
-
-        .items-table {
-          width: 100%;
-          border-collapse: collapse;
-          min-width: 1000px;
-        }
-
-        .items-table th {
-          background: #f8fafc;
-          padding: 16px 12px;
-          text-align: left;
-          font-size: 12px;
-          font-weight: 700;
-          color: #64748b;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-          border-bottom: 1px solid #e2e8f0;
-        }
-
-        .items-table td {
-          padding: 16px 12px;
-          border-bottom: 1px solid #f1f5f9;
-          background: white;
-          transition: all 0.2s ease;
-        }
-
-        .items-table tr:hover td {
-          background: #f8fafc;
-        }
-
-        .items-table tr:last-child td {
-          border-bottom: none;
-        }
-
-        .items-table input, .items-table select {
-          width: 100%;
-          padding: 12px;
-          border: 2px solid #f1f5f9;
-          border-radius: 8px;
-          font-size: 14px;
-          background: white;
-          transition: all 0.2s ease;
-        }
-
-        .items-table input:focus, .items-table select:focus {
-          outline: none;
-          border-color: #4f46e5;
-          box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
-        }
-
-        .uom-select {
-          min-width: 100px;
-        }
-
-        .remove-btn {
-          background: #fef2f2;
-          color: #dc2626;
-          border: none;
-          border-radius: 8px;
-          padding: 8px 12px;
-          cursor: pointer;
-          font-size: 14px;
-          transition: all 0.2s ease;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        .remove-btn:hover {
-          background: #dc2626;
-          color: white;
-          transform: scale(1.1);
-        }
-
-        .table-actions {
-          display: flex;
-          gap: 12px;
-          margin-top: 20px;
-        }
-
-        .btn {
-          padding: 14px 24px;
-          border: none;
-          border-radius: 12px;
-          font-size: 14px;
-          font-weight: 600;
-          cursor: pointer;
-          transition: all 0.3s ease;
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          text-decoration: none;
-        }
-
-        .btn:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-          transform: none !important;
-        }
-
-        .btn-primary {
-          background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-          color: white;
-          box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
-        }
-
-        .btn-primary:hover:not(:disabled) {
-          transform: translateY(-2px);
-          box-shadow: 0 8px 20px rgba(79, 70, 229, 0.4);
-        }
-
-        .btn-secondary {
-          background: #f8fafc;
-          color: #374151;
-          border: 2px solid #e2e8f0;
-        }
-
-        .btn-secondary:hover:not(:disabled) {
-          background: #f1f5f9;
-          transform: translateY(-1px);
-        }
-
-        .btn-success {
-          background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-          color: white;
-          box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
-        }
-
-        .btn-success:hover:not(:disabled) {
-          transform: translateY(-2px);
-          box-shadow: 0 8px 20px rgba(16, 185, 129, 0.4);
-        }
-
-        .btn-danger {
-          background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-          color: white;
-          box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
-        }
-
-        .btn-danger:hover:not(:disabled) {
-          transform: translateY(-2px);
-          box-shadow: 0 8px 20px rgba(239, 68, 68, 0.4);
-        }
-
-        .actions-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-          gap: 16px;
-          margin-top: 24px;
-        }
-
-        .status-indicator {
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          padding: 8px 16px;
-          background: #f0f9ff;
-          color: #0369a1;
-          border-radius: 8px;
-          font-size: 12px;
-          font-weight: 600;
-          border: 1px solid #bae6fd;
-        }
-
-        .shade-toggle, .gst-toggle {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          padding: 12px 16px;
-          background: #f8fafc;
-          border: 1px solid #e2e8f0;
-          border-radius: 12px;
-          margin-bottom: 12px;
-          cursor: pointer;
-          transition: all 0.2s ease;
-        }
-
-        .shade-toggle:hover, .gst-toggle:hover {
-          background: #f1f5f9;
-          border-color: #cbd5e1;
-        }
-
-        .shade-toggle.active, .gst-toggle.active {
-          background: #4f46e5;
-          border-color: #4f46e5;
-          color: white;
-        }
-
-        .shade-toggle-switch, .gst-toggle-switch {
-          position: relative;
-          width: 44px;
-          height: 24px;
-          background: #cbd5e1;
-          border-radius: 12px;
-          transition: all 0.3s ease;
-        }
-
-        .shade-toggle.active .shade-toggle-switch,
-        .gst-toggle.active .gst-toggle-switch {
-          background: rgba(255, 255, 255, 0.3);
-        }
-
-        .shade-toggle-switch::after, .gst-toggle-switch::after {
-          content: '';
-          position: absolute;
-          top: 2px;
-          left: 2px;
-          width: 20px;
-          height: 20px;
-          background: white;
-          border-radius: 50%;
-          transition: all 0.3s ease;
-        }
-
-        .shade-toggle.active .shade-toggle-switch::after,
-        .gst-toggle.active .gst-toggle-switch::after {
-          transform: translateX(20px);
-          background: #4f46e5;
-        }
-
-        .shade-toggle-label, .gst-toggle-label {
-          font-size: 14px;
-          font-weight: 600;
-        }
-
-        .saved-count, .gst-percentage {
-          font-size: 12px;
-          color: #64748b;
-          margin-left: auto;
-          background: white;
-          padding: 2px 8px;
-          border-radius: 10px;
-          border: 1px solid #e2e8f0;
-        }
-
-        .shade-toggle.active .saved-count,
-        .gst-toggle.active .gst-percentage {
-          background: rgba(255, 255, 255, 0.2);
-          border-color: rgba(255, 255, 255, 0.3);
-          color: white;
-        }
-
-        .clear-saved-btn {
-          padding: 6px 12px;
-          background: #fef2f2;
-          color: #dc2626;
-          border: 1px solid #fecaca;
-          border-radius: 8px;
-          font-size: 12px;
-          cursor: pointer;
-          transition: all 0.2s ease;
-          margin-left: 8px;
-        }
-
-        .clear-saved-btn:hover {
-          background: #dc2626;
-          color: white;
-        }
-
-        .suggestions-info {
-          font-size: 12px;
-          color: #64748b;
-          margin-top: 4px;
-          font-style: italic;
-        }
-
-        .modal-overlay {
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background: rgba(0, 0, 0, 0.5);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 1000;
-          padding: 20px;
-          backdrop-filter: blur(8px);
-        }
-
-        .modal-content {
-          background: white;
-          border-radius: 20px;
-          padding: 32px;
-          max-width: 440px;
-          width: 100%;
-          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-          animation: modalSlideIn 0.3s ease-out;
-        }
-
-        @keyframes modalSlideIn {
-          from {
-            opacity: 0;
-            transform: translateY(-20px) scale(0.95);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0) scale(1);
-          }
-        }
-
-        .modal-title {
-          font-size: 20px;
-          font-weight: 700;
-          margin-bottom: 8px;
-          color: #1e293b;
-        }
-
-        .modal-subtitle {
-          color: #64748b;
-          margin-bottom: 24px;
-          font-size: 14px;
-        }
-
-        .modal-actions {
-          display: flex;
-          gap: 12px;
-          margin-top: 24px;
-          justify-content: flex-end;
-        }
-
-        .gst-input-container {
-          margin: 20px 0;
-        }
-
-        .gst-input-group {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-
-        .gst-input {
-          flex: 1;
-          padding: 12px 16px;
-          border: 2px solid #e2e8f0;
-          border-radius: 8px;
-          font-size: 16px;
-          text-align: center;
-        }
-
-        .gst-percent-symbol {
-          font-size: 16px;
-          font-weight: 600;
-          color: #4f46e5;
-        }
-
-        .gst-presets {
-          display: flex;
-          gap: 8px;
-          margin-top: 12px;
-        }
-
-        .gst-preset-btn {
-          flex: 1;
-          padding: 8px;
-          background: #f1f5f9;
-          border: 1px solid #e2e8f0;
-          border-radius: 6px;
-          cursor: pointer;
-          transition: all 0.2s ease;
-          text-align: center;
-          font-size: 14px;
-        }
-
-        .gst-preset-btn:hover {
-          background: #4f46e5;
-          color: white;
-          border-color: #4f46e5;
-        }
-
-        .print-only { display: none; }
-
-        @media (max-width: 1024px) {
-          .content-grid {
-            grid-template-columns: 1fr;
-          }
-          .sidebar {
-            display: none;
-          }
-        }
-
-        @media (max-width: 768px) {
-          .po-container {
-            margin: 20px;
-            border-radius: 16px;
-          }
-          .main-content {
-            padding: 24px;
-          }
-          .section-card {
-            padding: 24px;
-          }
-          .form-grid {
-            grid-template-columns: 1fr;
-          }
-          .actions-grid {
-            grid-template-columns: 1fr;
-          }
-          .items-table {
-            min-width: 1200px;
-          }
-        }
-      `}</style>
-
       <div className="po-container" ref={printableRef}>
-        {/* Header */}
-      <header className="po-header">
-  <div className="header-content">
-    {/* Add back button at top */}
-    <button 
-      onClick={handleBackNavigation}
-      style={{
-        position: 'absolute',
-        top: '32px',
-        left: '40px',
-        background: 'rgba(255,255,255,0.2)',
-        border: 'none',
-        color: 'white',
-        padding: '10px 16px',
-        borderRadius: '8px',
-        cursor: 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-        fontSize: '14px',
-        fontWeight: '600',
-        transition: 'all 0.2s ease'
-      }}
-      onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.3)'}
-      onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'}
-    >
-      ← Back
-    </button>
-    
-    <h1 className="po-title">Purchase Order</h1>
-    <p className="po-subtitle">Create and manage supplier purchase orders with ease</p>
-  </div>
-</header>
+        <header className="po-header">
+          <div className="header-content">
+            <button 
+              onClick={handleBackNavigation}
+              className="back-button"
+            >
+              ← Back
+            </button>
+            
+            <h1 className="po-title">Purchase Order</h1>
+            <p className="po-subtitle">Create and manage supplier purchase orders with ease</p>
+          </div>
+        </header>
         <div className="po-content">
           <div className="content-grid">
-            {/* Sidebar Navigation */}
             <div className="sidebar">
-              {/* Added Back Button Section */}
               <div className="nav-section">
                 <div className="nav-title">Navigation</div>
                 <div className="nav-item" onClick={handleBackNavigation}>
@@ -2048,6 +1558,19 @@ const UOM_OPTIONS = [
                   <div className="nav-icon">⚡</div>
                   <span>Quick Actions</span>
                 </div>
+              </div>
+
+              <div className="nav-section">
+                <div className="nav-title">Load Previous PO</div>
+                <div className="nav-item" onClick={openLoadDialog}>
+                  <div className="nav-icon">📂</div>
+                  <span>Load PO by Number</span>
+                </div>
+                {availablePONumbers.length > 0 && (
+                  <div className="suggestions-info" style={{ marginTop: '8px', padding: '0 16px' }}>
+                    {availablePONumbers.length} previous POs available
+                  </div>
+                )}
               </div>
 
               <div className="nav-section">
@@ -2131,9 +1654,7 @@ const UOM_OPTIONS = [
               </div>
             </div>
 
-            {/* Main Content */}
             <div className="main-content">
-              {/* Basic Information Card */}
               <div className="section-card">
                 <div className="section-header">
                   <div className="section-icon">📋</div>
@@ -2145,7 +1666,7 @@ const UOM_OPTIONS = [
 
                 <div className="form-grid">
                   <div className="form-group">
-                    <label className="form-label">PO Number</label>
+                    <label className="form-label">PO Number <span className="required-star">*</span></label>
                     <div className="po-number-group">
                       <input
                         type="text"
@@ -2153,6 +1674,7 @@ const UOM_OPTIONS = [
                         value={poNumber}
                         onChange={(e) => setPoNumber(e.target.value)}
                         style={{ flex: 1 }}
+                        required
                       />
                       <button 
                         className="regenerate-btn" 
@@ -2168,33 +1690,36 @@ const UOM_OPTIONS = [
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">Supplier Name</label>
+                    <label className="form-label">Supplier Name <span className="required-star">*</span></label>
                     <input
                       type="text"
                       className="form-input"
                       placeholder="Enter supplier name"
                       value={supplierName}
                       onChange={(e) => setSupplierName(e.target.value)}
+                      required
                     />
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">Order Date</label>
+                    <label className="form-label">Order Date <span className="required-star">*</span></label>
                     <input
                       type="date"
                       className="form-input"
                       value={orderDate}
                       onChange={(e) => setOrderDate(e.target.value)}
+                      required
                     />
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">Order Time</label>
+                    <label className="form-label">Order Time <span className="required-star">*</span></label>
                     <input
                       type="time"
                       className="form-input"
                       value={orderTime}
                       onChange={(e) => setOrderTime(e.target.value)}
+                      required
                     />
                   </div>
 
@@ -2242,23 +1767,70 @@ const UOM_OPTIONS = [
                 </div>
               </div>
 
-              {/* Items Section */}
+              <div className="section-card">
+                <div className="section-header">
+                  <div className="section-icon">📝</div>
+                  <div>
+                    <div className="section-title">Approval Information</div>
+                    <div className="section-subtitle">Enter requisition and approval details <span className="required-star">* All fields are mandatory</span></div>
+                  </div>
+                </div>
+
+                <div className="form-grid">
+                  <div className="form-group">
+                    <label className="form-label">Requisition Raised By <span className="required-star">*</span></label>
+                    <SmartDropdown
+                      value={requisitionRaisedBy}
+                      onChange={setRequisitionRaisedBy}
+                      options={savedRequisitionNames}
+                      placeholder="Select or type name..."
+                      onSaveToLocalStorage={refreshSavedNames}
+                      localStorageKey={LOCAL_STORAGE_KEYS.REQUISITION_NAMES}
+                      required={true}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Prepared By <span className="required-star">*</span></label>
+                    <SmartDropdown
+                      value={preparedBy}
+                      onChange={setPreparedBy}
+                      options={savedPreparedNames}
+                      placeholder="Select or type name..."
+                      onSaveToLocalStorage={refreshSavedNames}
+                      localStorageKey={LOCAL_STORAGE_KEYS.PREPARED_NAMES}
+                      required={true}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Authorized By <span className="required-star">*</span></label>
+                    <SmartDropdown
+                      value={approvedBy}
+                      onChange={setApprovedBy}
+                      options={savedApprovedNames}
+                      placeholder="Select or type name..."
+                      onSaveToLocalStorage={refreshSavedNames}
+                      localStorageKey={LOCAL_STORAGE_KEYS.APPROVED_NAMES}
+                      required={true}
+                    />
+                  </div>
+                </div>
+              </div>
+
               <div className="section-card">
                 <div className="section-header">
                   <div className="section-icon">📦</div>
                   <div>
                     <div className="section-title">Items & Pricing</div>
-                    <div className="section-subtitle">Add items, quantities, and pricing information</div>
+                    <div className="section-subtitle">Add items, quantities, and pricing information <span className="required-star">*</span></div>
                   </div>
                 </div>
 
-                {/* Feature Toggles */}
-                <div className="feature-toggles" style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
-                  {/* Shade Toggle */}
+                <div className="feature-toggles">
                   <div 
                     className={`shade-toggle ${shadeEnabled ? 'active' : ''}`}
                     onClick={toggleShadeEnabled}
-                    style={{ flex: 1 }}
                   >
                     <div className="shade-toggle-switch"></div>
                     <span className="shade-toggle-label">
@@ -2269,11 +1841,9 @@ const UOM_OPTIONS = [
                     </span>
                   </div>
 
-                  {/* GST Toggle */}
                   <div 
                     className={`gst-toggle ${gstEnabled ? 'active' : ''}`}
                     onClick={handleGstToggle}
-                    style={{ flex: 1 }}
                   >
                     <div className="gst-toggle-switch"></div>
                     <span className="gst-toggle-label">
@@ -2296,7 +1866,6 @@ const UOM_OPTIONS = [
                   </div>
                 )}
 
-                {/* Total Display */}
                 <div className="total-card">
                   <div className="total-label">TOTAL AMOUNT</div>
                   <div className="total-amount">₹{fmtMoney(totals.grandTotal)}</div>
@@ -2337,11 +1906,11 @@ const UOM_OPTIONS = [
                     <thead>
                       <tr>
                         <th style={{ width: "40px" }}>#</th>
-                        <th style={{ width: "160px" }}>Department</th>
-                        <th>Description</th>
+                        <th style={{ width: "160px" }}>Department <span className="required-star">*</span></th>
+                        <th>Description <span className="required-star">*</span></th>
                         {shadeEnabled && <th style={{ width: "120px" }}>Shade</th>}
-                        <th style={{ width: "100px" }}>UOM</th>
-                        <th style={{ width: "100px" }}>Qty</th>
+                        <th style={{ width: "100px" }}>UOM <span className="required-star">*</span></th>
+                        <th style={{ width: "100px" }}>Qty <span className="required-star">*</span></th>
                         <th style={{ width: "120px" }}>Rate (₹)</th>
                         <th style={{ width: "120px", textAlign: "right" }}>Amount (₹)</th>
                         <th style={{ width: "60px" }}></th>
@@ -2356,11 +1925,12 @@ const UOM_OPTIONS = [
                             <td style={{ fontWeight: '600', color: '#64748b' }}>{idx + 1}</td>
                             <td>
                               <select
-                                className="form-select"
+                                className={`form-select ${!r.department ? 'required-field' : ''}`}
                                 value={r.department}
                                 onChange={(e) => updateRow(idx, { department: e.target.value })}
+                                required
                               >
-                                <option value="">Select Department</option>
+                                <option value="">Select Department *</option>
                                 {departments.map((d) => (
                                   <option key={d} value={d}>
                                     {d}
@@ -2372,8 +1942,8 @@ const UOM_OPTIONS = [
                             <td>
                               <input
                                 type="text"
-                                className="form-input"
-                                placeholder="Enter item description"
+                                className={`form-input ${!r.description ? 'required-field' : ''}`}
+                                placeholder="Enter item description *"
                                 value={r.description}
                                 onChange={(e) => handleDescriptionChange(idx, e.target.value)}
                                 list={`desc-${idx}`}
@@ -2381,6 +1951,7 @@ const UOM_OPTIONS = [
                                   saveDescriptionOnBlur(e.target.value);
                                   setSavedDescriptions(getLocalStorageItem(LOCAL_STORAGE_KEYS.DESCRIPTIONS, []));
                                 }}
+                                required
                               />
                               <datalist id={`desc-${idx}`}>
                                 {savedDescriptions.map((desc, i) => (
@@ -2413,15 +1984,18 @@ const UOM_OPTIONS = [
                               </td>
                             )}
                             <td>
-                              <UomSelect value={r.uom} onChange={(val) => updateRow(idx, { uom: val })} />
+                              <UomSelect value={r.uom} onChange={(val) => updateRow(idx, { uom: val })} required={true} />
                             </td>
                             <td>
                               <input
                                 type="number"
                                 step="0.01"
                                 min="0"
+                                className={!r.qty || r.qty <= 0 ? 'required-field' : ''}
                                 value={r.qty}
                                 onChange={(e) => updateRow(idx, { qty: e.target.value })}
+                                placeholder="0.00 *"
+                                required
                               />
                             </td>
                             <td>
@@ -2476,7 +2050,6 @@ const UOM_OPTIONS = [
                 </div>
               </div>
 
-              {/* Actions Section */}
               <div className="section-card">
                 <div className="section-header">
                   <div className="section-icon">⚡</div>
@@ -2487,6 +2060,10 @@ const UOM_OPTIONS = [
                 </div>
 
                 <div className="actions-grid">
+                  <button className="btn load-po-btn" onClick={openLoadDialog}>
+                    <span>📂</span>
+                    Load Previous PO
+                  </button>
                   <button className="btn btn-secondary" onClick={regeneratePoNumber}>
                     <span>🔄</span>
                     New PO Number
@@ -2509,7 +2086,6 @@ const UOM_OPTIONS = [
           </div>
         </div>
 
-        {/* Print Section */}
         <section className="print-only" style={{ padding: "20px", borderTop: "1px solid #e5e7eb" }}>
           <div
             style={{
@@ -2537,7 +2113,9 @@ const UOM_OPTIONS = [
                 </div>
               )}
               {leadHuman && <div style={{ marginBottom: "2px" }}>Lead Time: {leadHuman}</div>}
-              {supervisorName && <div style={{ marginBottom: "2px" }}>Supervisor: {supervisorName}</div>}
+              {requisitionRaisedBy && <div style={{ marginBottom: "2px" }}>Requisition Raised By: {requisitionRaisedBy}</div>}
+              {preparedBy && <div style={{ marginBottom: "2px" }}>Prepared By: {preparedBy}</div>}
+              {approvedBy && <div style={{ marginBottom: "2px" }}>Authorized By: {approvedBy}</div>}
               {remarks && <div style={{ marginBottom: "2px", maxWidth: "200px" }}>Remarks: {remarks}</div>}
               <div style={{ marginBottom: "2px" }}>Supplier: {supplierName}</div>
               <div style={{ fontWeight: 700 }}>Total: ₹{fmtMoney(totals.grandTotal)}</div>
@@ -2551,24 +2129,117 @@ const UOM_OPTIONS = [
         </section>
       </div>
 
-      {/* Supervisor Modal */}
-      {showSupervisorDialog && (
+      {/* Load PO Dialog */}
+      {showLoadDialog && (
         <div className="modal-overlay">
           <div className="modal-content">
-            <h3 className="modal-title">Supervisor Approval</h3>
+            <h3 className="modal-title">Load Previous Purchase Order</h3>
             <p className="modal-subtitle">
-              Enter supervisor name for approval and PDF generation
+              Enter a PO number to load its items
             </p>
+            
             <div className="form-group">
               <input
                 type="text"
                 className="form-input"
-                placeholder="Enter supervisor name"
-                value={supervisorName}
-                onChange={(e) => setSupervisorName(e.target.value)}
+                placeholder="Enter PO Number (e.g., PO-102819-1234)"
+                value={searchPoNumber}
+                onChange={(e) => setSearchPoNumber(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && handleLoadPO()}
                 autoFocus
               />
+              
+              {availablePONumbers.length > 0 && (
+                <div className="po-number-list">
+                  <div style={{ padding: '8px 12px', background: '#f8fafc', fontSize: '12px', fontWeight: '600', color: '#64748b' }}>
+                    Recent PO Numbers
+                  </div>
+                  {availablePONumbers.slice(0, 10).map((poNum) => (
+                    <div 
+                      key={poNum}
+                      className="po-number-item"
+                      onClick={() => {
+                        setSearchPoNumber(poNum);
+                        handleLoadPO();
+                      }}
+                    >
+                      {poNum}
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              {loadError && (
+                <div className="load-error">
+                  ⚠️ {loadError}
+                </div>
+              )}
             </div>
+            
+            <div className="modal-actions">
+              <button className="btn btn-secondary" onClick={() => setShowLoadDialog(false)}>
+                Cancel
+              </button>
+              <button 
+                className="btn btn-primary" 
+                onClick={handleLoadPO}
+                disabled={isLoadingPO || !searchPoNumber.trim()}
+              >
+                {isLoadingPO ? "Loading..." : "Load PO"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Supervisor Modal (Now for Requisition & Approval) */}
+      {showSupervisorDialog && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <h3 className="modal-title">Requisition & Approval Details</h3>
+            <p className="modal-subtitle">
+              Enter requisition and approval information <span style={{color: '#ef4444'}}>* All fields are required</span>
+            </p>
+            
+            <div className="form-group">
+              <label className="form-label">Requisition Raised By <span className="required-star">*</span></label>
+              <SmartDropdown
+                value={requisitionRaisedBy}
+                onChange={setRequisitionRaisedBy}
+                options={savedRequisitionNames}
+                placeholder="Select or type name..."
+                onSaveToLocalStorage={refreshSavedNames}
+                localStorageKey={LOCAL_STORAGE_KEYS.REQUISITION_NAMES}
+                required={true}
+              />
+            </div>
+            
+            <div className="form-group">
+              <label className="form-label">Prepared By <span className="required-star">*</span></label>
+              <SmartDropdown
+                value={preparedBy}
+                onChange={setPreparedBy}
+                options={savedPreparedNames}
+                placeholder="Select or type name..."
+                onSaveToLocalStorage={refreshSavedNames}
+                localStorageKey={LOCAL_STORAGE_KEYS.PREPARED_NAMES}
+                required={true}
+              />
+            </div>
+            
+            <div className="form-group">
+              <label className="form-label">Authorized By <span className="required-star">*</span></label>
+              <SmartDropdown
+                value={approvedBy}
+                onChange={setApprovedBy}
+                options={savedApprovedNames}
+                placeholder="Select or type name..."
+                onSaveToLocalStorage={refreshSavedNames}
+                localStorageKey={LOCAL_STORAGE_KEYS.APPROVED_NAMES}
+                required={true}
+              />
+            </div>
+            
             <div className="modal-actions">
               <button className="btn btn-secondary" onClick={() => setShowSupervisorDialog(false)}>
                 Cancel

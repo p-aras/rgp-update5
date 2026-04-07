@@ -86,6 +86,17 @@ function todayLocalISO() {
   return local.toISOString().slice(0, 10);
 }
 
+function printableDate(d) {
+  if (!d) return '—';
+  try {
+    const dt = new Date(d);
+    const dd = String(dt.getDate()).padStart(2, '0');
+    const mm = String(dt.getMonth() + 1).padStart(2, '0');
+    const yy = String(dt.getFullYear()).slice(-2);
+    return `${dd}.${mm}.${yy}`;
+  } catch { return d; }
+}
+
 // ============================
 // LOT helpers
 // ============================
@@ -227,6 +238,97 @@ async function fetchZipQualityData(signal) {
 }
 
 // ============================
+// Analyze Existing Orders for Pending Quantities
+// ============================
+async function analyzeExistingOrders(lotNumber, signal) {
+  try {
+    console.log('🔍 Analyzing existing orders for lot:', lotNumber);
+    const range = encodeURIComponent('ZipPurchaseOrders!A1:Z');
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_IDDD}/values/${range}?key=${GOOGLE_API_KEY}`;
+    
+    const response = await fetch(url, { signal });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch purchase orders: ${response.status}`);
+    }
+
+    const data = await response.json();
+    if (!data?.values?.length) {
+      return new Map();
+    }
+
+    const headers = data.values[0].map(norm);
+    
+    // Find column indices
+    const lotNumberIndex = headers.findIndex(h => includes(h, 'lot number'));
+    const zipSelectionsIndex = headers.findIndex(h => includes(h, 'zip selections'));
+    const totalPiecesIndex = headers.findIndex(h => includes(h, 'total pieces'));
+    const colorBreakdownIndex = headers.findIndex(h => includes(h, 'color breakdown'));
+    
+    if (lotNumberIndex === -1) {
+      console.warn('Lot Number column not found');
+      return new Map();
+    }
+
+    // Map to store ordered quantities per color
+    const orderedQuantities = new Map();
+
+    for (let i = 1; i < data.values.length; i++) {
+      const row = data.values[i] || [];
+      const rowLotNumber = norm(row[lotNumberIndex]);
+      
+      if (rowLotNumber === norm(lotNumber)) {
+        const totalPieces = totalPiecesIndex !== -1 ? parseInt(norm(row[totalPiecesIndex])) || 0 : 0;
+        const zipSelections = row[zipSelectionsIndex];
+        const colorBreakdown = row[colorBreakdownIndex];
+        
+        // Parse color breakdown if available (format: "15%: 150pcs; BLACK(50): 250pcs; CREAM: 150pcs")
+        if (colorBreakdown && typeof colorBreakdown === 'string') {
+          const colorEntries = colorBreakdown.split(';');
+          colorEntries.forEach(entry => {
+            const match = entry.match(/([^:]+):\s*(\d+)\s*pcs/);
+            if (match) {
+              const color = match[1].trim();
+              const pieces = parseInt(match[2]);
+              
+              const existing = orderedQuantities.get(color) || { orderedPieces: 0, zipColor: null };
+              existing.orderedPieces += pieces;
+              orderedQuantities.set(color, existing);
+            }
+          });
+        } 
+        // Fallback: Try to get from zip selections
+        else if (zipSelections && typeof zipSelections === 'string') {
+          try {
+            const selections = JSON.parse(zipSelections);
+            const selectedColors = Object.keys(selections).filter(color => 
+              selections[color] && selections[color] !== ''
+            );
+            
+            if (selectedColors.length > 0) {
+              const piecesPerColor = Math.floor(totalPieces / selectedColors.length);
+              selectedColors.forEach(color => {
+                const existing = orderedQuantities.get(color) || { orderedPieces: 0, zipColor: selections[color] };
+                existing.orderedPieces += piecesPerColor;
+                existing.zipColor = selections[color];
+                orderedQuantities.set(color, existing);
+              });
+            }
+          } catch (e) {
+            console.warn('Failed to parse zip selections:', zipSelections);
+          }
+        }
+      }
+    }
+
+    console.log('📊 Existing ordered quantities:', Array.from(orderedQuantities.entries()));
+    return orderedQuantities;
+  } catch (error) {
+    console.error('Error analyzing existing orders:', error);
+    return new Map();
+  }
+}
+
+// ============================
 // Fetch Existing Purchase Orders Function
 // ============================
 async function fetchExistingPurchaseOrders(lotNumber, signal) {
@@ -249,20 +351,14 @@ async function fetchExistingPurchaseOrders(lotNumber, signal) {
     const headers = data.values[0].map(norm);
     console.log('Purchase order headers:', headers);
     
-    // Find column indices
-    const lotNumberIndex = headers.findIndex(h => 
-      includes(h, 'lot number') || includes(h, 'lot')
-    );
-    const zipSelectionsIndex = headers.findIndex(h => 
-      includes(h, 'zip selections') || includes(h, 'selections')
-    );
+    const lotNumberIndex = headers.findIndex(h => includes(h, 'lot number'));
+    const zipSelectionsIndex = headers.findIndex(h => includes(h, 'zip selections'));
 
     if (lotNumberIndex === -1 || zipSelectionsIndex === -1) {
       console.warn('Required columns not found in purchase orders');
       return null;
     }
 
-    // Find existing orders for this lot
     const existingOrders = [];
     for (let i = 1; i < data.values.length; i++) {
       const row = data.values[i] || [];
@@ -298,7 +394,6 @@ async function fetchLotMatrixViaSheetsApi(lotNo, signal) {
   const { searchKey } = classifyLot(lotNo);
   console.log('Searching for lot:', { searchKey });
 
-  // Try index-based approach first (fastest)
   try {
     const indexData = await fetchIndexSheet(signal);
     const lotInfo = findLotInIndex(indexData, searchKey);
@@ -311,7 +406,6 @@ async function fetchLotMatrixViaSheetsApi(lotNo, signal) {
     console.warn('Index path failed:', err?.message);
   }
 
-  // Fallback to search (slower)
   try {
     const parsedAlt = await searchInCuttingSheet(searchKey, signal);
     parsedAlt.source = 'cutting';
@@ -323,9 +417,6 @@ async function fetchLotMatrixViaSheetsApi(lotNo, signal) {
   throw new Error(`Lot ${searchKey} not found in Cutting`);
 }
 
-// ============================
-// Sheets access — Index & Cutting
-// ============================
 async function fetchIndexSheet(signal) {
   try {
     const range = encodeURIComponent('Index!A1:Z');
@@ -357,10 +448,7 @@ function findLotInIndex(indexData, lotNo) {
   const startRowCol = headers.findIndex(h => includes(h, 'startrow'));
   const numRowsCol = headers.findIndex(h => includes(h, 'numrows'));
   const headerColsCol = headers.findIndex(h => includes(h, 'headercols'));
-
-  // Find the brand column index
   const brandCol = headers.findIndex(h => includes(h, 'brand'));
-  // Find the party name column index
   const partyNameCol = headers.findIndex(h => includes(h, 'party name'));
 
   if (lotNumberCol === -1) {
@@ -380,12 +468,10 @@ function findLotInIndex(indexData, lotNo) {
         headerCols: headerColsCol !== -1 ? parseInt(row[headerColsCol]) || 7 : 7,
         fabric: headers.includes('fabric') && row[headers.indexOf('fabric')] || '',
         garmentType: headers.includes('garment type') && row[headers.indexOf('garment type')] || '',
-        // Use the actual brand column index
         brand: brandCol !== -1 && row[brandCol] ? norm(row[brandCol]) : '',
         style: headers.includes('style') && row[headers.indexOf('style')] || '',
         sizes: headers.includes('sizes') && row[headers.indexOf('sizes')] || '',
         shades: headers.includes('shades') && row[headers.indexOf('shades')] || '',
-        // Use the actual party name column index (removed season)
         partyName: partyNameCol !== -1 && row[partyNameCol] ? norm(row[partyNameCol]) : '',
       };
     }
@@ -414,15 +500,12 @@ async function fetchFromCuttingUsingIndex(lotInfo, signal) {
     }
 
     console.log(`Fetched ${data.values.length} rows from Cutting sheet using index`);
-    console.log('Raw data:', data.values);
-
     const parsed = parseMatrixWithIndexInfo(data.values, lotInfo);
     if (parsed && parsed.rows && parsed.rows.length > 0) {
       console.log('Successfully parsed using index information');
       return parsed;
     }
 
-    console.log('Primary parsing failed, trying alternative approach');
     const parsedAlt = parseMatrix(data.values, lotNumber);
     if (parsedAlt && parsedAlt.rows && parsedAlt.rows.length > 0) {
       console.log('Successfully parsed with alternative method');
@@ -437,91 +520,8 @@ async function fetchFromCuttingUsingIndex(lotInfo, signal) {
   }
 }
 
-// ============================
-// Pending Zip Count Functions
-// ============================
-async function fetchPendingZipCount(signal) {
-  try {
-    const range = encodeURIComponent('ZipPurchaseOrders!A1:Z');
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_IDDD}/values/${range}?key=${GOOGLE_API_KEY}`;
-    
-    const response = await fetch(url, { signal });
-    if (!response.ok) {
-      throw new Error(`Failed to fetch pending zip data: ${response.status}`);
-    }
-
-    const data = await response.json();
-    if (!data?.values?.length) {
-      console.log('No data found in the sheet');
-      return { pendingLots: 0, totalPendingZipPcs: 0 };
-    }
-
-    const headers = data.values[0].map(norm);
-    
-    // Find column indices for the fields we need
-    const materialEntryDateIndex = headers.findIndex(h => 
-      includes(h, 'material entry date') || includes(h, 'material entry')
-    );
-    const lotNumberIndex = headers.findIndex(h => 
-      includes(h, 'lot number') || includes(h, 'lot')
-    );
-    const totalPiecesIndex = headers.findIndex(h => 
-      includes(h, 'total pieces') || includes(h, 'total pcs') || includes(h, 'total')
-    );
-    const placementQuantitiesIndex = headers.findIndex(h => 
-      includes(h, 'placement quantities') || includes(h, 'quantities')
-    );
-
-    // Count lots where Material Entry Date is empty and calculate total pending zip PCs
-    let pendingLots = 0;
-    let totalPendingZipPcs = 0;
-    
-    for (let i = 1; i < data.values.length; i++) {
-      const row = data.values[i] || [];
-      
-      const materialEntryDate = norm(row[materialEntryDateIndex]);
-      const lotNumber = norm(row[lotNumberIndex]);
-      const totalPieces = totalPiecesIndex !== -1 ? parseInt(norm(row[totalPiecesIndex])) || 0 : 0;
-      
-      // Get placement quantities
-      let totalZipQuantity = 1; // Default to 1 if no placement quantities found
-      if (placementQuantitiesIndex !== -1 && row[placementQuantitiesIndex]) {
-        try {
-          const placementQuantities = JSON.parse(row[placementQuantitiesIndex]);
-          if (typeof placementQuantities === 'object' && placementQuantities !== null) {
-            // Sum all placement quantities
-            totalZipQuantity = Object.values(placementQuantities).reduce((sum, qty) => sum + (parseInt(qty) || 0), 0);
-          }
-        } catch (e) {
-          console.warn('Failed to parse placement quantities for lot:', lotNumber);
-          totalZipQuantity = 1; // Fallback to 1
-        }
-      }
-      
-      // Count if lot number exists and material entry date is empty
-      if (lotNumber && !materialEntryDate) {
-        pendingLots++;
-        const zipPcs = totalPieces * totalZipQuantity;
-        totalPendingZipPcs += zipPcs;
-        console.log(`Pending lot: ${lotNumber}, Pieces: ${totalPieces}, Zip Qty: ${totalZipQuantity}, Zip PCs: ${zipPcs}`);
-      }
-    }
-
-    console.log(`Pending lots: ${pendingLots}, Total pending zip PCs: ${totalPendingZipPcs}`);
-    
-    return { 
-      pendingLots, 
-      totalPendingZipPcs 
-    };
-  } catch (error) {
-    console.error('Error fetching pending zip count:', error);
-    return { pendingLots: 0, totalPendingZipPcs: 0 };
-  }
-}
-
 function parseMatrixWithIndexInfo(rows, lotInfo) {
   console.log('Parsing with index info:', lotInfo);
-  console.log('Rows to parse:', rows);
 
   let lotNumber = lotInfo.lotNumber;
   let style = lotInfo.style || '';
@@ -547,32 +547,13 @@ function parseMatrixWithIndexInfo(rows, lotInfo) {
       if (idxBrand !== -1 && r[idxBrand + 1]) brand = norm(r[idxBrand + 1]);
       const idxPartyName = r.findIndex((c) => includes(c, 'party name'));
       if (idxPartyName !== -1 && r[idxPartyName + 1]) partyName = norm(r[idxPartyName + 1]);
-      // Removed season parsing
     }
-
-    const styleIdx = r.findIndex(c => includes(c, 'style'));
-    if (styleIdx !== -1 && r[styleIdx + 1] && !style) style = norm(r[styleIdx + 1]);
-
-    const fabricIdx = r.findIndex(c => includes(c, 'fabric'));
-    if (fabricIdx !== -1 && r[fabricIdx + 1] && !fabric) fabric = norm(r[fabricIdx + 1]);
-
-    const garmentTypeIdx = r.findIndex(c => includes(c, 'garment type'));
-    if (garmentTypeIdx !== -1 && r[garmentTypeIdx + 1] && !garmentType) garmentType = norm(r[garmentTypeIdx + 1]);
-
-    const brandIdx = r.findIndex(c => includes(c, 'brand'));
-    if (brandIdx !== -1 && r[brandIdx + 1] && !brand) brand = norm(r[brandIdx + 1]);
-
-    const partyNameIdx = r.findIndex(c => includes(c, 'party name'));
-    if (partyNameIdx !== -1 && r[partyNameIdx + 1] && !partyName) partyName = norm(r[partyNameIdx + 1]);
-
-    // Removed season parsing
   }
 
   let headerIdx = -1;
 
   for (let i = 0; i < Math.min(rows.length, 10); i++) {
     const r = rows[i] || [];
-
     const hasColor = r.some(c => includes(c, 'color'));
     const hasCT = r.some(c => includes(c, 'cutting table') || includes(c, 'table'));
     const hasSizes = r.some(c => !isNaN(parseFloat(c)) && isFinite(c));
@@ -765,8 +746,6 @@ function sliceSectionForLot(values, lotNo) {
   return rows.slice(start, Math.min(start + 80, rows.length));
 }
 
-const valOrEmpty = v => (v == null || v === 0 || v === '0' ? '' : v);
-
 function toNumOrNull(v) {
   const t = norm(v);
   if (t === '') return null;
@@ -781,7 +760,6 @@ function parseMatrix(rows, lotNo) {
   let garmentType = '';
   let brand = '';
   let partyName = '';
-  let season = '';
 
   for (let i = 0; i < Math.min(rows.length, 12); i++) {
     const r = rows[i] || [];
@@ -798,27 +776,7 @@ function parseMatrix(rows, lotNo) {
       if (idxBrand !== -1 && r[idxBrand + 1]) brand = norm(r[idxBrand + 1]);
       const idxPartyName = r.findIndex((c) => includes(c, 'party name'));
       if (idxPartyName !== -1 && r[idxPartyName + 1]) partyName = norm(r[idxPartyName + 1]);
-      const idxSeason = r.findIndex((c) => includes(c, 'season'));
-      if (idxSeason !== -1 && r[idxSeason + 1]) season = norm(r[idxSeason + 1]);
     }
-
-    const styleIdx = r.findIndex(c => includes(c, 'style'));
-    if (styleIdx !== -1 && r[styleIdx + 1] && !style) style = norm(r[styleIdx + 1]);
-
-    const fabricIdx = r.findIndex(c => includes(c, 'fabric'));
-    if (fabricIdx !== -1 && r[fabricIdx + 1] && !fabric) fabric = norm(r[fabricIdx + 1]);
-
-    const garmentTypeIdx = r.findIndex(c => includes(c, 'garment type'));
-    if (garmentTypeIdx !== -1 && r[garmentTypeIdx + 1] && !garmentType) garmentType = norm(r[garmentTypeIdx + 1]);
-
-    const brandIdx = r.findIndex(c => includes(c, 'brand'));
-    if (brandIdx !== -1 && r[brandIdx + 1] && !brand) brand = norm(r[brandIdx + 1]);
-
-    const partyNameIdx = r.findIndex(c => includes(c, 'party name'));
-    if (partyNameIdx !== -1 && r[partyNameIdx + 1] && !partyName) partyName = norm(r[partyNameIdx + 1]);
-
-    const seasonIdx = r.findIndex(c => includes(c, 'season'));
-    if (seasonIdx !== -1 && r[seasonIdx + 1] && !season) season = norm(r[seasonIdx + 1]);
   }
 
   let headerIdx = -1;
@@ -836,7 +794,6 @@ function parseMatrix(rows, lotNo) {
       garmentType, 
       brand, 
       partyName, 
-      season, 
       sizes: [], 
       rows: [], 
       totals: { perSize: {}, grand: 0 } 
@@ -909,35 +866,95 @@ function parseMatrix(rows, lotNo) {
     garmentType, 
     brand, 
     partyName, 
-    season, 
     sizes: sizeKeys, 
     rows: body, 
     totals 
   };
 }
 
-function printableDate(d) {
-  if (!d) return '—';
+// ============================
+// Pending Zip Count Functions
+// ============================
+async function fetchPendingZipCount(signal) {
   try {
-    const dt = new Date(d);
-    const dd = String(dt.getDate()).padStart(2, '0');
-    const mm = String(dt.getMonth() + 1).padStart(2, '0');
-    const yy = String(dt.getFullYear()).slice(-2);
-    return `${dd}.${mm}.${yy}`;
-  } catch { return d; }
+    const range = encodeURIComponent('ZipPurchaseOrders!A1:Z');
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_IDDD}/values/${range}?key=${GOOGLE_API_KEY}`;
+    
+    const response = await fetch(url, { signal });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch pending zip data: ${response.status}`);
+    }
+
+    const data = await response.json();
+    if (!data?.values?.length) {
+      console.log('No data found in the sheet');
+      return { pendingLots: 0, totalPendingZipPcs: 0 };
+    }
+
+    const headers = data.values[0].map(norm);
+    
+    const materialEntryDateIndex = headers.findIndex(h => 
+      includes(h, 'material entry date') || includes(h, 'material entry')
+    );
+    const lotNumberIndex = headers.findIndex(h => 
+      includes(h, 'lot number') || includes(h, 'lot')
+    );
+    const totalPiecesIndex = headers.findIndex(h => 
+      includes(h, 'total pieces') || includes(h, 'total pcs') || includes(h, 'total')
+    );
+    const placementQuantitiesIndex = headers.findIndex(h => 
+      includes(h, 'placement quantities') || includes(h, 'quantities')
+    );
+
+    let pendingLots = 0;
+    let totalPendingZipPcs = 0;
+    
+    for (let i = 1; i < data.values.length; i++) {
+      const row = data.values[i] || [];
+      
+      const materialEntryDate = norm(row[materialEntryDateIndex]);
+      const lotNumber = norm(row[lotNumberIndex]);
+      const totalPieces = totalPiecesIndex !== -1 ? parseInt(norm(row[totalPiecesIndex])) || 0 : 0;
+      
+      let totalZipQuantity = 1;
+      if (placementQuantitiesIndex !== -1 && row[placementQuantitiesIndex]) {
+        try {
+          const placementQuantities = JSON.parse(row[placementQuantitiesIndex]);
+          if (typeof placementQuantities === 'object' && placementQuantities !== null) {
+            totalZipQuantity = Object.values(placementQuantities).reduce((sum, qty) => sum + (parseInt(qty) || 0), 0);
+          }
+        } catch (e) {
+          console.warn('Failed to parse placement quantities for lot:', lotNumber);
+          totalZipQuantity = 1;
+        }
+      }
+      
+      if (lotNumber && !materialEntryDate) {
+        pendingLots++;
+        const zipPcs = totalPieces * totalZipQuantity;
+        totalPendingZipPcs += zipPcs;
+        console.log(`Pending lot: ${lotNumber}, Pieces: ${totalPieces}, Zip Qty: ${totalZipQuantity}, Zip PCs: ${zipPcs}`);
+      }
+    }
+
+    console.log(`Pending lots: ${pendingLots}, Total pending zip PCs: ${totalPendingZipPcs}`);
+    
+    return { pendingLots, totalPendingZipPcs };
+  } catch (error) {
+    console.error('Error fetching pending zip count:', error);
+    return { pendingLots: 0, totalPendingZipPcs: 0 };
+  }
 }
 
 // ============================
-// Simple QR Code Functions for Your AppScript
+// Simple QR Code Functions
 // ============================
 const generateSimpleQR = async (lotNumber) => {
   try {
-    // Generate QR URLs for your simple AppScript
     const gateEntryQRUrl = `${QR_SYSTEM_URL}?action=gateForm&lot=${encodeURIComponent(lotNumber)}`;
     const materialInQRUrl = `${QR_SYSTEM_URL}?action=materialForm&lot=${encodeURIComponent(lotNumber)}`;
     const supplierQRUrl = `${QR_SYSTEM_URL}?action=supplierForm&lot=${encodeURIComponent(lotNumber)}`;
 
-    // Generate QR code images
     const gateQRImage = await QRCode.toDataURL(gateEntryQRUrl, {
       width: 120,
       margin: 1,
@@ -957,18 +974,9 @@ const generateSimpleQR = async (lotNumber) => {
     });
 
     return {
-      gateEntry: {
-        url: gateEntryQRUrl,
-        image: gateQRImage
-      },
-      materialIn: {
-        url: materialInQRUrl,
-        image: materialQRImage
-      },
-      supplierEntry: {
-        url: supplierQRUrl,
-        image: supplierQRImage
-      }
+      gateEntry: { url: gateEntryQRUrl, image: gateQRImage },
+      materialIn: { url: materialInQRUrl, image: materialQRImage },
+      supplierEntry: { url: supplierQRUrl, image: supplierQRImage }
     };
   } catch (error) {
     console.error('Error generating QR codes:', error);
@@ -977,7 +985,10 @@ const generateSimpleQR = async (lotNumber) => {
 };
 
 // ============================
-// Save Order to Sheet Function with Blocked Shades Support
+// Save Order to Sheet Function with Pending Support
+// ============================
+// ============================
+// FIXED Save Order to Sheet Function (Matching Working Version)
 // ============================
 const saveOrderToSheet = async (matrix, formData, totalCost) => {
   try {
@@ -1065,7 +1076,7 @@ const saveOrderToSheet = async (matrix, formData, totalCost) => {
 };
 
 // ============================
-// UPDATED PDF GENERATION WITH BLOCKED SHADES SUPPORT
+// PDF GENERATION WITH PENDING SUPPORT
 // ============================
 const generateIssuePdf = async (matrix, { 
   issueDate, 
@@ -1076,28 +1087,14 @@ const generateIssuePdf = async (matrix, {
   placementQuantities,
   placementZipTypes,
   zipQualityData,
-  blockedShades 
+  blockedShades,
+  pendingInfo,
+  isPendingOrder = false,
+  consignee = ''
 }) => {
   if (!matrix) return;
 
   const line = 0.9;
-
-  function printableDate(d) {
-    if (!d) return '';
-    const dt = new Date(d);
-    if (isNaN(dt)) return String(d);
-    const dd = String(dt.getDate()).padStart(2, '0');
-    const mm = String(dt.getMonth() + 1).padStart(2, '0');
-    const yyyy = dt.getFullYear();
-    return `${dd}/${mm}/${yyyy}`;
-  }
-
-  function filenameDatePart(d) {
-    if (!d) return 'unknown';
-    const dt = new Date(d);
-    if (isNaN(dt)) return 'unknown';
-    return `${dt.getFullYear()}${String(dt.getMonth() + 1).padStart(2,'0')}${String(dt.getDate()).padStart(2,'0')}`;
-  }
 
   function cleanString(v) {
     return typeof norm === 'function' ? norm(v) : (v || '');
@@ -1143,187 +1140,194 @@ const generateIssuePdf = async (matrix, {
     }
   };
 
-  // Generate simple QR codes for your AppScript
+  const getActualQuantity = (color, originalQty) => {
+    if (!isPendingOrder) return originalQty;
+    const pending = pendingInfo?.get(color);
+    if (pending && pending.status === 'partial' && pending.remaining > 0) {
+      return pending.remaining;
+    }
+    return originalQty;
+  };
+
   const qrCodes = await generateSimpleQR(matrix.lotNumber);
   
-  // Fetch pending zip count and total pending zip PCs
   let pendingData = { pendingLots: 0, totalPendingZipPcs: 0 };
   try {
     pendingData = await fetchPendingZipCount();
-    console.log(`Pending lots: ${pendingData.pendingLots}, Total pending zip PCs: ${pendingData.totalPendingZipPcs}`);
   } catch (error) {
     console.error('Failed to fetch pending data:', error);
   }
 
-  // Calculate selected pieces (excluding blocked shades)
   const selectedRows = matrix.rows.filter(row => {
     const color = row.color || '';
     const zipColor = zipSelections[color] || '';
+    if (isPendingOrder) {
+      const pending = pendingInfo?.get(color);
+      return zipColor && zipColor.trim() !== '' && 
+             !blockedShades.has(color) && 
+             pending?.remaining > 0;
+    }
     return zipColor && zipColor.trim() !== '' && !blockedShades.has(color);
   });
 
-  const selectedTotalPieces = selectedRows.reduce((sum, row) => sum + (row.totalPcs || 0), 0);
+  const selectedTotalPieces = selectedRows.reduce((sum, row) => {
+    const color = row.color;
+    const qty = getActualQuantity(color, row.totalPcs);
+    return sum + (qty || 0);
+  }, 0);
   
-  console.log(`📊 PDF: Showing ${selectedTotalPieces} selected pieces instead of ${matrix.totals.grand} total pieces`);
+  console.log(`📊 PDF: Showing ${selectedTotalPieces} ${isPendingOrder ? 'pending' : 'selected'} pieces`);
 
   const doc = new jsPDF({ unit: 'pt', format: 'A4' });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
-
   const M = 18;
   const borderPad = 6;
   doc.setDrawColor(0); doc.setTextColor(0); doc.setLineWidth(line);
   const borderX = 8, borderY = 8, borderW = W - 16, borderH = H - 16;
 
-  // Function to draw header (reusable for multiple pages)
   const drawHeader = () => {
-    // Draw outer border
     doc.rect(borderX, borderY, borderW, borderH);
 
     const CM = M + borderPad;
     const contentWidth = W - (CM * 2);
-
-    // --- Simple QR Codes in Boxes ---
-    const boxY = borderY + 20; 
-    const boxSize = 80; 
+    const boxY = borderY + 20;
+    const boxSize = 100;
     const centerPoint = borderX + borderW / 2;
 
-    // Box 1 - GATE ENTRY QR
-    const box1X = CM; 
+    // Box 1 - GATE ENTRY QR (LEFT)
+    const box1X = CM;
     doc.rect(box1X, boxY, boxSize, boxSize);
-
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
-    doc.text('SCAN FOR', box1X + boxSize/2, boxY + 10, { align: 'center' });
-    doc.text('GATE ENTRY', box1X + boxSize/2, boxY + 20, { align: 'center' });
+    doc.setFont('times', 'bold'); doc.setFontSize(9);
+    doc.text('SCAN FOR', box1X + boxSize/2, boxY + 12, { align: 'center' });
+    doc.text('GATE ENTRY', box1X + boxSize/2, boxY + 24, { align: 'center' });
     
     if (qrCodes && qrCodes.gateEntry.image) {
-      doc.addImage(qrCodes.gateEntry.image, 'PNG', box1X + 10, boxY + 25, boxSize - 20, boxSize - 35);
+      doc.addImage(qrCodes.gateEntry.image, 'PNG', box1X + 12, boxY + 32, boxSize - 24, boxSize - 44);
     } else {
-      // Fallback placeholder
-      doc.rect(box1X + 10, boxY + 25, boxSize - 20, boxSize - 35);
-      doc.setFontSize(6);
+      doc.rect(box1X + 12, boxY + 32, boxSize - 24, boxSize - 44);
+      doc.setFontSize(7);
       doc.text('QR CODE', box1X + boxSize/2, boxY + boxSize/2 + 5, { align: 'center' });
-      doc.text('GATE ENTRY', box1X + boxSize/2, boxY + boxSize/2 + 15, { align: 'center' });
+      doc.text('GATE ENTRY', box1X + boxSize/2, boxY + boxSize/2 + 18, { align: 'center' });
     }
 
-    // Box 2 - MATERIAL IN QR
+    // Box 2 - MATERIAL IN QR (RIGHT)
     const box2X = CM + contentWidth - boxSize;
     doc.rect(box2X, boxY, boxSize, boxSize);
-
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
-    doc.text('SCAN FOR', box2X + boxSize/2, boxY + 10, { align: 'center' });
-    doc.text('MATERIAL IN', box2X + boxSize/2, boxY + 20, { align: 'center' });
+    doc.setFont('times', 'bold'); doc.setFontSize(9);
+    doc.text('SCAN FOR', box2X + boxSize/2, boxY + 12, { align: 'center' });
+    doc.text('MATERIAL IN', box2X + boxSize/2, boxY + 24, { align: 'center' });
     
     if (qrCodes && qrCodes.materialIn.image) {
-      doc.addImage(qrCodes.materialIn.image, 'PNG', box2X + 10, boxY + 25, boxSize - 20, boxSize - 35);
+      doc.addImage(qrCodes.materialIn.image, 'PNG', box2X + 12, boxY + 32, boxSize - 24, boxSize - 44);
     } else {
-      // Fallback placeholder
-      doc.rect(box2X + 10, boxY + 25, boxSize - 20, boxSize - 35);
-      doc.setFontSize(6);
+      doc.rect(box2X + 12, boxY + 32, boxSize - 24, boxSize - 44);
+      doc.setFontSize(7);
       doc.text('QR CODE', box2X + boxSize/2, boxY + boxSize/2 + 5, { align: 'center' });
-      doc.text('MATERIAL IN', box2X + boxSize/2, boxY + boxSize/2 + 15, { align: 'center' });
+      doc.text('MATERIAL IN', box2X + boxSize/2, boxY + boxSize/2 + 18, { align: 'center' });
     }
 
-    const headerTitleY = boxY + 20; 
+    // HEADING BETWEEN QR CODES
+    const headerTitleY = boxY + boxSize/2 - 15;
     
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(20);
+    if (isPendingOrder) {
+      doc.setFont('times', 'italic');
+      doc.setFontSize(13);
+      doc.setTextColor(0, 0, 0);
+      doc.text('PENDING QUANTITY ORDER', centerPoint, headerTitleY - 22, { align: 'center' });
+      doc.setTextColor(0, 0, 0);
+    }
+    
+    doc.setFont('times', 'bold'); 
+    doc.setFontSize(18);
     doc.text('PURCHASE ORDER', centerPoint, headerTitleY, { align: 'center' });
     
-    doc.setFontSize(14);
-    doc.text('ZIPPER MATERIAL REQUIREMENT', centerPoint, headerTitleY + 20, { align: 'center' }); 
+    doc.setFontSize(12);
+    doc.text('ZIP MATERIAL REQUIREMENT', centerPoint, headerTitleY + 18, { align: 'center' });
 
-    const lotNumberText = cleanString(matrix.lotNumber || 'LOT NO. UNKNOWN');
-    doc.setFont('helvetica', 'bold'); 
-    doc.setFontSize(18);
-    doc.text(`LOT NO: ${lotNumberText}`, centerPoint, headerTitleY + 45, { align: 'center' });
+    const lotNumberText = cleanString(matrix.lotNumber || 'lot no. unknown');
+    doc.setFont('times', 'bold');
+    doc.setFontSize(16);
+    doc.text(`LOT NO: ${lotNumberText}`, centerPoint, headerTitleY + 40, { align: 'center' });
 
-    // Rest of your existing PDF content...
-    const fieldsY = boxY + boxSize + 15;
+    // FIELDS SECTION (below QR codes)
+    const fieldsY = boxY + boxSize + 12;
     const fieldH = 20;
     
-    // Line 1: DATE, ITEM
     const dateItemW = (contentWidth / 2) - 1;
     const dateItemX = CM;
     
     doc.rect(dateItemX, fieldsY, dateItemW, fieldH);
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+    doc.setFont('times', 'bold'); doc.setFontSize(9);
     doc.text('DATE :', dateItemX + 4, fieldsY + 12);
-    doc.setFont('helvetica', 'normal');
+    doc.setFont('times', 'normal');
     doc.text(printableDate(issueDate), dateItemX + 35, fieldsY + 12);
 
     doc.rect(dateItemX + dateItemW, fieldsY, dateItemW, fieldH);
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+    doc.setFont('times', 'bold'); doc.setFontSize(9);
     doc.text('ITEM :', dateItemX + dateItemW + 4, fieldsY + 12);
-    doc.setFont('helvetica', 'normal');
+    doc.setFont('times', 'normal');
     doc.text(cleanString(matrix.garmentType || matrix.style || ''), dateItemX + dateItemW + 35, fieldsY + 12);
 
-    // Line 2: TOTAL PCS (SELECTED), PRIORITY - UPDATED TO SHOW SELECTED PIECES
     const pcsPriorityX = CM;
     
     doc.rect(pcsPriorityX, fieldsY + fieldH, dateItemW, fieldH);
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
-    doc.text('TOTAL PCS', pcsPriorityX + 4, fieldsY + fieldH + 12);
-    doc.setFont('helvetica', 'normal');
-    // Show selected pieces instead of complete lot total
+    doc.setFont('times', 'bold'); doc.setFontSize(9);
+    doc.text(isPendingOrder ? 'PENDING PCS'  : 'TOTAL PCS', pcsPriorityX + 4, fieldsY + fieldH + 12);
+    doc.setFont('times', 'normal');
     doc.text(selectedTotalPieces.toString(), pcsPriorityX + 60, fieldsY + fieldH + 12);
 
     doc.rect(pcsPriorityX + dateItemW, fieldsY + fieldH, dateItemW, fieldH);
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
-    doc.text('PRIORITY', pcsPriorityX + dateItemW + 4, fieldsY + fieldH + 12);
-    doc.setFont('helvetica', 'normal');
-    doc.text(cleanString(priority ?? 'Normal'), pcsPriorityX + dateItemW + 50, fieldsY + fieldH + 12);
+    doc.setFont('times', 'bold'); doc.setFontSize(9);
+    doc.text('PRIOIRTY', pcsPriorityX + dateItemW + 4, fieldsY + fieldH + 12);
+    doc.setFont('times', 'normal');
+    doc.text(cleanString(priority ?? 'normal'), pcsPriorityX + dateItemW + 50, fieldsY + fieldH + 12);
 
-    // Line 3: BRAND, SUPERVISOR (REPLACED LOT NO. WITH BRAND)
     const brandSupervisorX = CM;
-
     doc.rect(brandSupervisorX, fieldsY + (fieldH * 2), dateItemW, fieldH);
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+    doc.setFont('times', 'bold'); doc.setFontSize(9);
     doc.text('BRAND :', brandSupervisorX + 4, fieldsY + (fieldH * 2) + 12);
-    doc.setFont('helvetica', 'normal');
+    doc.setFont('times', 'normal');
     doc.text(cleanString(matrix.brand || ''), brandSupervisorX + 45, fieldsY + (fieldH * 2) + 12);
 
     doc.rect(brandSupervisorX + dateItemW, fieldsY + (fieldH * 2), dateItemW, fieldH);
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+    doc.setFont('times', 'bold'); doc.setFontSize(9);
     doc.text('SUPERVISOR : ', brandSupervisorX + dateItemW + 4, fieldsY + (fieldH * 2) + 12);
-    doc.setFont('helvetica', 'normal');
+    doc.setFont('times', 'normal');
     doc.text(cleanString(supervisor ?? '________'), brandSupervisorX + dateItemW + 65, fieldsY + (fieldH * 2) + 12);
 
-    const dividingLineY = fieldsY + (fieldH * 3) + 5;
+    // CONSIGNEE FIELD
+    const consigneeY = fieldsY + (fieldH * 3);
+    doc.rect(CM, consigneeY, contentWidth, fieldH);
+    doc.setFont('times', 'bold'); doc.setFontSize(9);
+    doc.text('CONSIGNEE :', CM + 4, consigneeY + 12);
+    doc.setFont('times', 'normal');
+    doc.text(cleanString(consignee || '________________________'), CM + 65, consigneeY + 12);
+
+    const dividingLineY = consigneeY + fieldH + 5;
     doc.setLineWidth(1.5);
     doc.setDrawColor(0);
     doc.line(CM, dividingLineY, CM + contentWidth, dividingLineY);
     doc.setLineWidth(line);
 
-    return {
-      CM,
-      contentWidth,
-      breakdownStartY: dividingLineY + 15
-    };
+    return { CM, contentWidth, breakdownStartY: dividingLineY + 15 };
   };
 
-  // Function to draw simple footer with page number (for all pages except last)
   const drawSimpleFooter = (currentPage, pageCount) => {
-    // Page number
-    doc.setFont('helvetica', 'normal');
+    doc.setFont('times', 'normal');
     doc.setFontSize(8);
-    doc.text(`Page ${currentPage} of ${pageCount}`, W / 2, H - 10, { align: 'center' });
+    doc.text(`page ${currentPage} of ${pageCount}`, W / 2, H - 10, { align: 'center' });
   };
 
   const drawFooterWithSignatures = () => {
     const CM = M + borderPad;
     const contentWidth = W - (CM * 2);
-    
-    // Define signature section height
     const signatureSectionHeight = 130;
-    
-    // ALWAYS position signature section at the bottom (only on last page)
     const signatureSectionY = H - signatureSectionHeight;
-
-    // Signature boxes
-    const signatureBoxWidth = 150;
+    const signatureBoxWidth = 170;
     const signatureBoxHeight = 50;
     const signatureSpacing = (contentWidth - (signatureBoxWidth * 3)) / 2;
-    const boxPad = 5; 
+    const boxPad = 5;
 
     doc.setLineWidth(line);
     doc.setDrawColor(0);
@@ -1331,102 +1335,72 @@ const generateIssuePdf = async (matrix, {
 
     const drawSignatureBox = (x, label) => {
       doc.rect(x, signatureSectionY, signatureBoxWidth, signatureBoxHeight);
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
-      doc.text(label, x + boxPad, signatureSectionY + 10);
-      
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+      doc.setFont('times', 'bold'); doc.setFontSize(9);
+      doc.text(label.toLowerCase(), x + boxPad, signatureSectionY + 10);
+      doc.setFont('times', 'normal'); doc.setFontSize(8);
       doc.text('NAME:', x + boxPad, signatureSectionY + 28);
-      doc.line(x + 35, signatureSectionY + 28, x + signatureBoxWidth - boxPad, signatureSectionY + 28); 
-      
-      doc.text('DATE:', x + boxPad, signatureSectionY + 43);
-      doc.line(x + 35, signatureSectionY + 43, x + signatureBoxWidth - boxPad, signatureSectionY + 43); 
+      doc.line(x + 35, signatureSectionY + 28, x + signatureBoxWidth - boxPad, signatureSectionY + 28);
+      doc.text('date:', x + boxPad, signatureSectionY + 43);
+      doc.line(x + 35, signatureSectionY + 43, x + signatureBoxWidth - boxPad, signatureSectionY + 43);
     };
 
     const supervisorBoxX = CM;
     drawSignatureBox(supervisorBoxX, 'SUPERVISOR SIGN');
-
     const supplierBoxX = supervisorBoxX + signatureBoxWidth + signatureSpacing;
     drawSignatureBox(supplierBoxX, 'SUPPLIER SIGN');
-
     const receiverBoxX = supplierBoxX + signatureBoxWidth + signatureSpacing;
     drawSignatureBox(receiverBoxX, 'RECEIVER SIGN');
 
-    // UPDATED Pending Status Box - Shows pending lots and total pending zip PCs
     const pendingBoxWidth = 140;
     const pendingBoxHeight = 50;
     const pendingBoxX = receiverBoxX;
     const pendingBoxY = signatureSectionY - 55;
 
-    // Draw box
     doc.setDrawColor(0);
     doc.setLineWidth(line);
     doc.rect(pendingBoxX, pendingBoxY, pendingBoxWidth, pendingBoxHeight);
-
-    // Heading
-    doc.setFont('helvetica', 'bold');
+    doc.setFont('times', 'bold');
     doc.setFontSize(8);
     doc.setTextColor(0, 0, 0);
     doc.text('PENDING STATUS', pendingBoxX + pendingBoxWidth/2, pendingBoxY + 8, { align: 'center' });
-
-    // Draw line under heading
     doc.setLineWidth(0.5);
     doc.line(pendingBoxX + 5, pendingBoxY + 12, pendingBoxX + pendingBoxWidth - 5, pendingBoxY + 12);
-
-    // Pending Lots count
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.text('PENDING LOTS:', pendingBoxX + 8, pendingBoxY + 22);
-    doc.setFontSize(11);
-    doc.text(`${pendingData.pendingLots}`, pendingBoxX + pendingBoxWidth - 8, pendingBoxY + 22, { align: 'right' });
-
-    // Total Pending Zip PCs count
-    doc.setFont('helvetica', 'bold');
+    doc.setFont('times', 'bold');
     doc.setFontSize(8);
-    doc.text('PENDING ZIP PCs:', pendingBoxX + 8, pendingBoxY + 35);
+    doc.text('PENDING LOTS:', pendingBoxX + 8, pendingBoxY + 22);
     doc.setFontSize(10);
+    doc.text(`${pendingData.pendingLots}`, pendingBoxX + pendingBoxWidth - 8, pendingBoxY + 22, { align: 'right' });
+    doc.setFont('times', 'bold');
+    doc.setFontSize(7);
+    doc.text('PENDING ZIP PCS:', pendingBoxX + 8, pendingBoxY + 35);
+    doc.setFontSize(9);
     doc.text(`${pendingData.totalPendingZipPcs.toLocaleString()}`, pendingBoxX + pendingBoxWidth - 8, pendingBoxY + 35, { align: 'right' });
 
-    // QR code usage instructions
     const instructionsY = signatureSectionY + signatureBoxHeight + 15;
-
-    // Center point for the content area
     const centerX = CM + contentWidth / 2;
-
-    // Instructions in simple black text
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.setTextColor(0, 0, 0);
-    doc.text('QR CODE USAGE INSTRUCTIONS:', centerX, instructionsY, { align: 'center' });
-    
-    doc.setFont('helvetica', 'normal');
+    doc.setFont('times', 'bold');
     doc.setFontSize(8);
-    doc.text('• LEFT QR: Scan when material enters the gate - updates Gate Entry Person & Date', centerX, instructionsY + 12, { align: 'center' });
-    doc.text('• RIGHT QR: Scan when material is received - updates Material Received status & Date', centerX, instructionsY + 24, { align: 'center' });
+    doc.setTextColor(0, 0, 0);
+    doc.text('QR CODE USAGE INSTRUCTION:', centerX, instructionsY, { align: 'center' });
+    doc.setFont('times', 'normal');
+    doc.setFontSize(7);
+    doc.text('• LEFT QR: SCAN WHEN MATERIAL ENTER THE GATE - UPDATES GATE ENTRY PERSON AND DATE', centerX, instructionsY + 10, { align: 'center' });
+    doc.text('• RIGHT QR: SCAN WHEN MATERIAL ARE RECEIVED - UPDATE MATERIAL RECEIVED STATUS AND DATE', centerX, instructionsY + 20, { align: 'center' });
   };
 
   const { CM, contentWidth, breakdownStartY } = drawHeader();
-  
   let finalContentY = breakdownStartY;
-  
-  // Define signature section height early so we can calculate available space
   const signatureSectionHeight = 120;
   
-  // Calculate available space for content
-  const maxContentHeight = H - signatureSectionHeight - 50;
-
-  // Variables for summary data - NOW USING SELECTED ROWS ONLY
   let summaryData = [];
   let totalZipCost = 0;
   let currentPage = 1;
   let pageCount = 1;
   
   if (matrix && selectedRows.length > 0 && selectedPlacements.length > 0 && zipSelections) {
-    const zipHead = [['ZIP TYPE', 'PLACEMENT', 'COLOUR', 'ZIP COLOUR', 'QUANTITY', 'PRICE', 'TOTAL']];
-    
+    const zipHead = [['ZIP TYPE', 'PLACEMENT', 'COLOUR', 'ZIP COLOUR', 'QTY', 'PRICE', 'TOTAL']];
     const zipBody = [];
     totalZipCost = 0;
-
-    // Create a map to aggregate quantities by zip type - USING SELECTED ROWS ONLY
     const zipTypeSummary = {};
 
     selectedPlacements.forEach(placement => {
@@ -1434,7 +1408,6 @@ const generateIssuePdf = async (matrix, {
       const zipType = placementZipTypes[placement];
       
       if (zipType) {
-        // Use selectedRows instead of matrix.rows
         selectedRows.forEach(row => {
           const color = row.color;
           if (!color) return;
@@ -1442,12 +1415,11 @@ const generateIssuePdf = async (matrix, {
           const zipColor = zipSelections[color];
           if (zipColor && zipColor.trim() !== '' && !blockedShades.has(color)) {
             const price = getZipPricePdf(zipType, zipColor);
-            const quantity = parseInt(row.totalPcs) || 0;
-            const requiredQuantity = quantity * placementQuantity; 
+            const quantity = getActualQuantity(color, row.totalPcs);
+            const requiredQuantity = quantity * placementQuantity;
             const rowTotal = price * requiredQuantity;
             totalZipCost += rowTotal;
 
-            // Aggregate for summary
             if (!zipTypeSummary[zipType]) {
               zipTypeSummary[zipType] = 0;
             }
@@ -1469,17 +1441,18 @@ const generateIssuePdf = async (matrix, {
       }
     });
 
-    // Convert summary map to array for display
+    // Calculate total quantity from all zip body entries
+    const totalQuantityAll = zipBody.reduce((sum, row) => sum + (parseInt(row[4]) || 0), 0);
+    
     summaryData = Object.entries(zipTypeSummary).map(([zipType, totalQuantity]) => ({
       zipType,
       totalQuantity
     }));
 
     if (zipBody.length > 0) {
-      const zipFoot = [[ 
-        '', '', '', '', '', 'Total:', 
-        formatPlainNumber(totalZipCost)
-      ]];
+      const zipFoot = [
+        ['', '', '', '', `T QTY: ${totalQuantityAll}`, 'T COST:', formatPlainNumber(totalZipCost)]
+      ];
 
       const zipColStyles = { 
         0: { cellWidth: 120, halign: 'left' },
@@ -1491,7 +1464,6 @@ const generateIssuePdf = async (matrix, {
         6: { cellWidth: 50, halign: 'right' }
       };
 
-      // Use autoTable with custom didDrawPage to handle multiple pages
       autoTable(doc, {
         head: zipHead,
         body: zipBody,
@@ -1502,7 +1474,7 @@ const generateIssuePdf = async (matrix, {
         margin: { top: breakdownStartY, left: CM, right: CM, bottom: 50 },
         pageBreak: 'auto',
         styles: {
-          font: 'helvetica',
+          font: 'times',
           fontSize: 9,
           textColor: [0,0,0],
           lineColor: [0,0,0],
@@ -1520,23 +1492,17 @@ const generateIssuePdf = async (matrix, {
           fillColor: [240, 240, 240], 
           textColor: [0,0,0], 
           fontStyle: 'bold',
-          halign: 'right'
+          halign: 'center'
         },
         columnStyles: zipColStyles,
         didDrawPage: function(data) {
-          // Update current page for footer
           currentPage = data.pageNumber;
           pageCount = data.pageCount;
-          
-          // Draw simple footer for all pages except last
           if (currentPage < pageCount) {
             drawSimpleFooter(currentPage, pageCount);
           }
-          
-          // If this is not the first page, draw header
           if (data.pageNumber > 1) {
             drawHeader();
-            // Add simple footer for intermediate pages
             drawSimpleFooter(currentPage, pageCount);
           }
         }
@@ -1544,12 +1510,10 @@ const generateIssuePdf = async (matrix, {
 
       finalContentY = doc.lastAutoTable.finalY + 20;
 
-      // Draw summary box below the table - NOW SHOWS SELECTED PIECES TOTAL
       if (summaryData.length > 0) {
         const summaryBoxWidth = contentWidth;
-        const summaryBoxHeight = Math.max(80, summaryData.length * 20 + 50); // Increased padding
+        const summaryBoxHeight = Math.max(80, summaryData.length * 20 + 50);
         
-        // Check if we need a new page for summary
         if (finalContentY + summaryBoxHeight > H - signatureSectionHeight - 20) {
           doc.addPage();
           currentPage++;
@@ -1562,90 +1526,65 @@ const generateIssuePdf = async (matrix, {
         const summaryBoxX = CM;
         const summaryBoxY = finalContentY;
 
-        // Draw summary box with proper padding
         doc.setDrawColor(0);
         doc.setLineWidth(line);
         doc.rect(summaryBoxX, summaryBoxY, summaryBoxWidth, summaryBoxHeight);
-
-        // Summary title with proper padding from top
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(12);
+        doc.setFont('times', 'bold');
+        doc.setFontSize(11);
         doc.text('ZIP TYPE SUMMARY', summaryBoxX + summaryBoxWidth/2, summaryBoxY + 20, { align: 'center' });
-
-        // Draw line under title with proper spacing
         doc.setLineWidth(0.8);
         doc.line(summaryBoxX + 10, summaryBoxY + 30, summaryBoxX + summaryBoxWidth - 10, summaryBoxY + 30);
+        doc.setFont('times', 'normal');
+        doc.setFontSize(9);
         
-        // Summary content with proper spacing
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(10);
-        
-        let summaryContentY = summaryBoxY + 50; // Increased from 45
-        const columnWidth = summaryBoxWidth / 2;
+        let summaryContentY = summaryBoxY + 50;
         
         summaryData.forEach((item, index) => {
-          const rowY = summaryContentY + (index * 20); // Increased line spacing
+          const rowY = summaryContentY + (index * 20);
           doc.text(`${item.zipType}:`, summaryBoxX + 20, rowY);
           doc.text(`${item.totalQuantity.toLocaleString()}`, summaryBoxX + summaryBoxWidth - 20, rowY, { align: 'right' });
         });
 
-        // Total line with proper spacing
         const totalQuantity = summaryData.reduce((sum, item) => sum + item.totalQuantity, 0);
-        const totalY = summaryContentY + (summaryData.length * 20) + 10; // Increased spacing
+        const totalY = summaryContentY + (summaryData.length * 20) + 10;
         
         doc.setLineWidth(0.8);
         doc.line(summaryBoxX + 10, totalY, summaryBoxX + summaryBoxWidth - 10, totalY);
-        
-        doc.setFont('helvetica', 'bold');
-        doc.text('GRAND TOTAL OF ZIP PCS:', summaryBoxX + 20, totalY + 18); // Increased spacing
+        doc.setFont('times', 'bold');
+        doc.text('GRAND TOTAL OF ZIP PCS:', summaryBoxX + 20, totalY + 18);
         doc.text(`${totalQuantity.toLocaleString()}`, summaryBoxX + summaryBoxWidth - 20, totalY + 18, { align: 'right' });
 
         finalContentY = summaryBoxY + summaryBoxHeight + 20;
 
-        // ADD SUPPLIER QR BELOW THE SUMMARY BOX
-        const supplierQRSize = 80;
-        const supplierQRX = CM + (contentWidth - supplierQRSize) / 2; // Center the QR code
+        const supplierQRSize = 100;
+        const supplierQRX = CM + (contentWidth - supplierQRSize) / 2;
         const supplierQRY = finalContentY + 20;
 
-        // Draw Supplier QR box
         doc.rect(supplierQRX, supplierQRY, supplierQRSize, supplierQRSize);
-
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
-        doc.text('SCAN FOR', supplierQRX + supplierQRSize/2, supplierQRY + 10, { align: 'center' });
-        doc.text('SUPPLIER ENTRY', supplierQRX + supplierQRSize/2, supplierQRY + 20, { align: 'center' });
+        doc.setFont('times', 'bold'); doc.setFontSize(9);
+        doc.text('SCAN FOR', supplierQRX + supplierQRSize/2, supplierQRY + 12, { align: 'center' });
+        doc.text('SUPPLIER', supplierQRX + supplierQRSize/2, supplierQRY + 24, { align: 'center' });
         
         if (qrCodes && qrCodes.supplierEntry.image) {
-          doc.addImage(qrCodes.supplierEntry.image, 'PNG', supplierQRX + 10, supplierQRY + 25, supplierQRSize - 20, supplierQRSize - 35);
+          doc.addImage(qrCodes.supplierEntry.image, 'PNG', supplierQRX + 12, supplierQRY + 32, supplierQRSize - 24, supplierQRSize - 44);
         } else {
-          // Fallback placeholder
-          doc.rect(supplierQRX + 10, supplierQRY + 25, supplierQRSize - 20, supplierQRSize - 35);
-          doc.setFontSize(6);
+          doc.rect(supplierQRX + 12, supplierQRY + 32, supplierQRSize - 24, supplierQRSize - 44);
+          doc.setFontSize(7);
           doc.text('QR CODE', supplierQRX + supplierQRSize/2, supplierQRY + supplierQRSize/2 + 5, { align: 'center' });
-          doc.text('SUPPLIER ENTRY', supplierQRX + supplierQRSize/2, supplierQRY + supplierQRSize/2 + 15, { align: 'center' });
+          doc.text('SUPPLIER ENTRY', supplierQRX + supplierQRSize/2, supplierQRY + supplierQRSize/2 + 18, { align: 'center' });
         }
 
         finalContentY = supplierQRY + supplierQRSize + 20;
       }
-
-    } else {
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-      doc.text('No zip cost breakdown available', CM, breakdownStartY + 10);
-      finalContentY = breakdownStartY + 30;
     }
-  } else {
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-    doc.text('No zip cost breakdown available', CM, breakdownStartY + 10);
-    finalContentY = breakdownStartY + 30;
   }
 
-  // Draw final footer with signatures and QR instructions on the last page
   drawFooterWithSignatures();
   drawSimpleFooter(currentPage, pageCount);
 
-  const fname = `Lot_${cleanString(matrix.lotNumber || 'Unknown')}_Purchase_Order_${filenameDatePart(issueDate)}.pdf`;
+  const fname = `Lot_${cleanString(matrix.lotNumber || 'Unknown')}_${isPendingOrder ? 'PENDING_' : ''}PO_${printableDate(issueDate).replace(/\//g, '-')}.pdf`;
   doc.save(fname);
 
-  // Save order data to Google Sheets
   const saveResult = await saveOrderToSheet(
     matrix,
     { 
@@ -1657,9 +1596,11 @@ const generateIssuePdf = async (matrix, {
       placementQuantities,
       placementZipTypes,
       zipQualityData,
-      blockedShades
+      blockedShades,
+      pendingInfo
     },
-    totalZipCost
+    totalZipCost,
+    isPendingOrder
   );
 
   return {
@@ -1669,12 +1610,13 @@ const generateIssuePdf = async (matrix, {
     message: saveResult.message,
     pendingData: pendingData,
     selectedPieces: selectedTotalPieces,
-    totalPieces: matrix.totals.grand
+    totalPieces: matrix.totals.grand,
+    isPendingOrder: isPendingOrder
   };
 };
 
 // ============================
-// Optimized React Component
+// Main Component
 // ============================
 export default function PuneetZip() {
   const [lotInput, setLotInput] = useState('');
@@ -1684,6 +1626,7 @@ export default function PuneetZip() {
   const abortRef = useRef(null);
   const [priority, setPriority] = useState('Normal');
   const [blockedShades, setBlockedShades] = useState(new Set());
+  const [pendingInfo, setPendingInfo] = useState(null);
 
   const [showIssueDialog, setShowIssueDialog] = useState(false);
   const [issueDate, setIssueDate] = useState(() => todayLocalISO());
@@ -1691,23 +1634,18 @@ export default function PuneetZip() {
   const [dialogError, setDialogError] = useState('');
   const [confirming, setConfirming] = useState(false);
 
-  // State for zip selections
   const [zipSelections, setZipSelections] = useState({});
-  
-  // State for zip quality data and selections
   const [zipQualityData, setZipQualityData] = useState([]);
   const [selectedZipTypes, setSelectedZipTypes] = useState([]);
   const [loadingZipQuality, setLoadingZipQuality] = useState(false);
   const [zipDataError, setZipDataError] = useState('');
 
-  // State for garment-zip configuration and placements
   const [garmentZipConfig, setGarmentZipConfig] = useState({});
   const [selectedPlacements, setSelectedPlacements] = useState([]);
   const [placementQuantities, setPlacementQuantities] = useState({});
   const [placementZipTypes, setPlacementZipTypes] = useState({});
   const [loadingGarmentConfig, setLoadingGarmentConfig] = useState(false);
 
-  // ---- Supervisor suggestions (with persistence) ----
   const LS_KEY_SUPERVISORS = 'issueStitching.supervisors';
   const DEFAULT_SUPERVISORS = ['SONU', 'SANJAY', 'MONU', 'ROHIT','VINAY'];
 
@@ -1720,7 +1658,6 @@ export default function PuneetZip() {
     }
   });
 
-  // Preload all required data on component mount
   useEffect(() => {
     const preloadData = async () => {
       setLoadingZipQuality(true);
@@ -1767,86 +1704,106 @@ export default function PuneetZip() {
     return !supervisorOptions.some(opt => (opt || '').toLowerCase() === t);
   }, [supervisor, supervisorOptions]);
 
-  // Optimized search handler
-  const handleSearch = async (e) => {
-    e?.preventDefault?.();
-    const normalizedLot = norm(lotInput);
-    if (!normalizedLot || loading) return;
-
-    setError('');
-    setMatrix(null);
-    setBlockedShades(new Set()); // Reset blocked shades
-    setLoading(true);
-
-    abortRef.current?.abort?.();
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
-
-    try {
-      // Check cache first
-      const cacheKey = `lot_${normalizedLot}`;
-      const cachedMatrix = getCached(cacheKey);
-      
-      if (cachedMatrix) {
-        console.log('Using cached lot data');
-        setMatrix(cachedMatrix);
-        await initializeZipSelections(cachedMatrix, ctrl.signal);
-      } else {
-        const data = await fetchLotMatrixViaSheetsApi(normalizedLot, ctrl.signal);
-        setCached(cacheKey, data);
-        setMatrix(data);
-        await initializeZipSelections(data, ctrl.signal);
-      }
-    } catch (err) {
-      if (err.name !== 'AbortError') {
-        setError(err?.message || "Failed to fetch data.");
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const initializeZipSelections = async (matrixData, signal) => {
-    const initialSelections = {};
-    const blockedShades = new Set();
+  const initializeWithPendingDetection = async (matrixData, signal) => {
+    const zipSelectionsTemp = {};
+    const blockedShadesTemp = new Set();
+    const pendingInfoTemp = new Map();
     
-    // Check for existing purchase orders
-    const existingOrders = await fetchExistingPurchaseOrders(matrixData.lotNumber, signal);
+    const existingOrders = await analyzeExistingOrders(matrixData.lotNumber, signal);
     
-    if (existingOrders) {
-      // Collect all blocked shades from existing orders
-      existingOrders.forEach(order => {
-        Object.entries(order).forEach(([color, selection]) => {
-          // If selection is not empty, block this shade
-          if (selection && selection.trim() !== '') {
-            blockedShades.add(color);
-          }
-        });
-      });
-    }
-
-    // Initialize selections, blocking shades that already have orders
     matrixData.rows.forEach(row => {
       const color = row.color;
-      if (blockedShades.has(color)) {
-        // This shade is blocked (already has an order)
-        initialSelections[color] = 'BLOCKED';
+      const currentCuttingQty = row.totalPcs || 0;
+      const existingOrder = existingOrders.get(color);
+      
+      if (existingOrder) {
+        const orderedQty = existingOrder.orderedPieces;
+        const remainingQty = currentCuttingQty - orderedQty;
+        
+        if (remainingQty <= 0) {
+          blockedShadesTemp.add(color);
+          zipSelectionsTemp[color] = 'BLOCKED';
+          pendingInfoTemp.set(color, {
+            status: 'completed',
+            ordered: orderedQty,
+            remaining: 0,
+            total: currentCuttingQty,
+            zipColor: existingOrder.zipColor,
+            canOrder: false
+          });
+        } else {
+          zipSelectionsTemp[color] = existingOrder.zipColor || '';
+          pendingInfoTemp.set(color, {
+            status: 'partial',
+            ordered: orderedQty,
+            remaining: remainingQty,
+            total: currentCuttingQty,
+            zipColor: existingOrder.zipColor,
+            canOrder: true,
+            isPending: true
+          });
+        }
       } else {
-        // This shade is available for new order
-        initialSelections[color] = '';
+        zipSelectionsTemp[color] = '';
+        pendingInfoTemp.set(color, {
+          status: 'available',
+          ordered: 0,
+          remaining: currentCuttingQty,
+          total: currentCuttingQty,
+          zipColor: null,
+          canOrder: true,
+          isPending: false
+        });
       }
     });
     
-    setZipSelections(initialSelections);
-    
-    // Store blocked shades for UI display
-    setBlockedShades(blockedShades);
-    
-    // Reset placement selections
-    setSelectedPlacements([]);
-    setPlacementQuantities({});
-    setPlacementZipTypes({});
+    return { zipSelections: zipSelectionsTemp, blockedShades: blockedShadesTemp, pendingInfo: pendingInfoTemp };
   };
+
+const handleSearch = async (e) => {
+  e?.preventDefault?.();
+  const normalizedLot = norm(lotInput);
+  if (!normalizedLot || loading) return;
+
+  setError('');
+  setMatrix(null);
+  setBlockedShades(new Set());
+  setPendingInfo(null);
+  setZipSelections({}); // Reset to empty object
+  setLoading(true);
+
+  abortRef.current?.abort?.();
+  const ctrl = new AbortController();
+  abortRef.current = ctrl;
+
+  try {
+    const cacheKey = `lot_${normalizedLot}`;
+    const cachedMatrix = getCached(cacheKey);
+    
+    if (cachedMatrix) {
+      console.log('Using cached lot data');
+      setMatrix(cachedMatrix);
+      const { zipSelections: selections, blockedShades: blocked, pendingInfo: pending } = await initializeWithPendingDetection(cachedMatrix, ctrl.signal);
+      setZipSelections(selections || {}); // Ensure object
+      setBlockedShades(blocked || new Set());
+      setPendingInfo(pending || new Map());
+    } else {
+      const data = await fetchLotMatrixViaSheetsApi(normalizedLot, ctrl.signal);
+      setCached(cacheKey, data);
+      setMatrix(data);
+      const { zipSelections: selections, blockedShades: blocked, pendingInfo: pending } = await initializeWithPendingDetection(data, ctrl.signal);
+      setZipSelections(selections || {}); // Ensure object
+      setBlockedShades(blocked || new Set());
+      setPendingInfo(pending || new Map());
+    }
+  } catch (err) {
+    if (err.name !== 'AbortError') {
+      setError(err?.message || "Failed to fetch data.");
+    }
+  } finally {
+    setLoading(false);
+  }
+};
 
   const handleClear = () => {
     setLotInput('');
@@ -1857,6 +1814,7 @@ export default function PuneetZip() {
     setPlacementQuantities({});
     setPlacementZipTypes({});
     setBlockedShades(new Set());
+    setPendingInfo(null);
     abortRef.current?.abort?.();
   };
 
@@ -1866,7 +1824,6 @@ export default function PuneetZip() {
   };
 
   const handleZipChange = (color, value) => {
-    // Check if this shade is blocked
     if (blockedShades.has(color)) {
       alert(`This shade (${color}) already has a purchase order and cannot be modified.`);
       return;
@@ -1878,7 +1835,6 @@ export default function PuneetZip() {
     }));
   };
 
-  // Memoized calculations
   const availableZipTypes = useMemo(() => {
     const types = [...new Set(zipQualityData.map(item => item.type))];
     return types.sort();
@@ -1890,7 +1846,6 @@ export default function PuneetZip() {
     return garmentZipConfig[normalizedType] || [];
   }, [matrix, garmentZipConfig]);
 
-  // Optimized zip price lookup
   const getZipPrice = (zipType, color) => {
     if (!zipType || !color || !zipQualityData) return 0;
     
@@ -1913,10 +1868,13 @@ export default function PuneetZip() {
         matrix.rows.forEach(row => {
           const color = row.color;
           const zipColor = zipSelections[color];
-          // Check if shade is not blocked and has a valid zip color
           if (zipColor && zipColor.trim() !== '' && !blockedShades.has(color)) {
+            let pieces = row.totalPcs || 0;
+            const pending = pendingInfo?.get(color);
+            if (pending?.status === 'partial' && pending.remaining > 0) {
+              pieces = pending.remaining;
+            }
             const price = getZipPrice(zipType, zipColor);
-            const pieces = row.totalPcs || 0;
             total += (price * pieces) * quantity;
           }
         });
@@ -1924,16 +1882,14 @@ export default function PuneetZip() {
     });
 
     return total;
-  }, [selectedPlacements, placementQuantities, placementZipTypes, matrix, zipSelections, blockedShades]);
+  }, [selectedPlacements, placementQuantities, placementZipTypes, matrix, zipSelections, blockedShades, pendingInfo]);
 
-  // Toggle zip placement selection
   const togglePlacement = (placement) => {
     setSelectedPlacements(prev => {
       const newPlacements = prev.includes(placement) 
         ? prev.filter(p => p !== placement)
         : [...prev, placement];
       
-      // Reset quantities and zip types when placements change
       if (!newPlacements.includes(placement)) {
         setPlacementQuantities(prev => {
           const newQuantities = { ...prev };
@@ -1946,7 +1902,6 @@ export default function PuneetZip() {
           return newZipTypes;
         });
       } else {
-        // Initialize with default values when adding a placement
         setPlacementQuantities(prev => ({
           ...prev,
           [placement]: 1
@@ -1961,7 +1916,6 @@ export default function PuneetZip() {
     });
   };
 
-  // Handle quantity change for a placement
   const handleQuantityChange = (placement, quantity) => {
     setPlacementQuantities(prev => ({
       ...prev,
@@ -1969,7 +1923,6 @@ export default function PuneetZip() {
     }));
   };
 
-  // Handle zip type change for a placement
   const handlePlacementZipTypeChange = (placement, zipType) => {
     setPlacementZipTypes(prev => ({
       ...prev,
@@ -1989,23 +1942,13 @@ export default function PuneetZip() {
     setShowIssueDialog(false);
   };
 
-  const handleConfirmIssue = async () => {
-    if (!norm(supervisor)) { 
-      setDialogError('Supervisor is required.'); 
-      return; 
-    }
-    if (!matrix) { 
-      setDialogError('Nothing to submit. Search a lot first.'); 
-      return; 
-    }
-    
+  const generatePendingOrder = async () => {
     setDialogError('');
     setConfirming(true);
 
     try {
       addSupervisorToOptions(supervisor);
 
-      // Generate PDF with selected shades data
       const result = await generateIssuePdf(matrix, { 
         issueDate, 
         supervisor, 
@@ -2015,27 +1958,18 @@ export default function PuneetZip() {
         placementQuantities,
         placementZipTypes,
         zipQualityData,
-        blockedShades // Add blockedShades here
+        blockedShades,
+        pendingInfo,
+        isPendingOrder: true
       });
 
       setShowIssueDialog(false);
       
       if (result.success) {
-        // Calculate selected pieces for the success message (excluding blocked shades)
-        const selectedCount = Object.entries(zipSelections)
-          .filter(([color, selection]) => 
-            selection && selection.trim() !== '' && !blockedShades.has(color)
-          ).length;
-        
-        const selectedPieces = matrix.rows
-          .filter(row => 
-            zipSelections[row.color] && 
-            zipSelections[row.color].trim() !== '' && 
-            !blockedShades.has(row.color)
-          )
-          .reduce((sum, row) => sum + (row.totalPcs || 0), 0);
-        
-        alert(`PDF generated successfully! Stored ${selectedPieces} pieces (${selectedCount} selected shades) instead of complete lot. ${blockedShades.size > 0 ? `${blockedShades.size} shades were blocked due to existing orders.` : ''}`);
+        alert(`✅ PENDING ORDER created successfully!\n\n` +
+              `Order Type: Additional/Remaining Quantity\n` +
+              `Quantity: ${result.selectedPieces} pieces\n\n` +
+              `PDF has been saved and data stored in sheet.`);
       } else {
         alert('PDF generated but data saving failed: ' + result.message);
       }
@@ -2046,6 +1980,85 @@ export default function PuneetZip() {
       setConfirming(false);
     }
   };
+
+  const generateFullOrder = async () => {
+    setDialogError('');
+    setConfirming(true);
+
+    try {
+      addSupervisorToOptions(supervisor);
+
+      const result = await generateIssuePdf(matrix, { 
+        issueDate, 
+        supervisor, 
+        priority,
+        zipSelections,
+        selectedPlacements,
+        placementQuantities,
+        placementZipTypes,
+        zipQualityData,
+        blockedShades,
+        pendingInfo,
+        isPendingOrder: false
+      });
+
+      setShowIssueDialog(false);
+      
+      if (result.success) {
+        alert(`✅ NEW ORDER created successfully!\n\n` +
+              `Quantity: ${result.selectedPieces} pieces`);
+      } else {
+        alert('PDF generated but data saving failed: ' + result.message);
+      }
+      
+    } catch (e) {
+      setDialogError(e?.message || 'Failed to generate PDF.');
+    } finally {
+      setConfirming(false);
+    }
+  };
+
+const handleConfirmIssue = async () => {
+  if (!norm(supervisor)) { 
+    setDialogError('Supervisor is required.'); 
+    return; 
+  }
+  if (!matrix) { 
+    setDialogError('Nothing to submit. Search a lot first.'); 
+    return; 
+  }
+  
+  // Add safety check for zipSelections
+  if (!zipSelections || typeof zipSelections !== 'object') {
+    setDialogError('Zip selections not initialized. Please try searching the lot again.');
+    return;
+  }
+  
+  const hasPendingSelections = Object.entries(zipSelections).some(([color, selection]) => {
+    const pending = pendingInfo?.get(color);
+    return selection && selection.trim() !== '' && 
+           pending?.status === 'partial' && 
+           pending.remaining > 0;
+  });
+  
+  if (hasPendingSelections) {
+    const userChoice = window.confirm(
+      '⚠️ Some selected shades already have existing orders!\n\n' +
+      'Would you like to:\n' +
+      '• Click OK to create a PENDING ORDER for the REMAINING quantities only\n' +
+      '• Click Cancel to create a NEW ORDER for FULL quantities (duplicate)\n\n' +
+      'Note: Creating a pending order will only order the remaining pieces.'
+    );
+    
+    if (userChoice) {
+      await generatePendingOrder();
+    } else {
+      await generateFullOrder();
+    }
+  } else {
+    await generateFullOrder();
+  }
+};
 
   const displaySizes = useMemo(() => {
     if (!matrix) return [];
@@ -2061,44 +2074,6 @@ export default function PuneetZip() {
     <div className="Wrap">
       <style>
         {`
-        /* Add loading state styles */
-        .Skeleton {
-          background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
-          background-size: 200% 100%;
-          animation: loading 1.5s infinite;
-          border-radius: 4px;
-        }
-
-        @keyframes loading {
-          0% { background-position: 200% 0; }
-          100% { background-position: -200% 0; }
-        }
-
-        .SkeletonText {
-          height: 1rem;
-          margin-bottom: 0.5rem;
-        }
-
-        .SkeletonButton {
-          height: 3rem;
-          border-radius: 14px;
-        }
-
-        /* Blocked row styles */
-        .blocked-row {
-          background-color: #fef2f2 !important;
-          opacity: 0.7;
-        }
-
-        .blocked-row:hover {
-          background-color: #fef2f2 !important;
-        }
-
-        .blocked-row td {
-          color: #9ca3af !important;
-        }
-
-        /* Keep all your existing styles from the original component */
         .Wrap {
           max-width: 2100px;
           margin: 0 auto;
@@ -2315,16 +2290,6 @@ export default function PuneetZip() {
           box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
         }
 
-        .HintCard code {
-          background: #f1f5f9;
-          padding: 4px 8px;
-          border-radius: 8px;
-          font-family: 'JetBrains Mono', monospace;
-          color: #475569;
-          font-size: 0.9rem;
-          font-weight: 500;
-        }
-
         .ContentGrid {
           display: grid;
           grid-template-columns: 1fr 2fr;
@@ -2382,11 +2347,6 @@ export default function PuneetZip() {
           font-size: 1.3rem;
           font-weight: 700;
           color: #1e293b;
-        }
-
-        .PanelHeader svg {
-          color: #8b5cf6;
-          font-size: 1.2rem;
         }
 
         .InfoGrid {
@@ -2555,6 +2515,15 @@ export default function PuneetZip() {
           border-color: #cbd5e1;
         }
 
+        .blocked-row {
+          background-color: #fef2f2 !important;
+          opacity: 0.7;
+        }
+
+        .blocked-row:hover {
+          background-color: #fef2f2 !important;
+        }
+
         .ZipQualityForm {
           display: grid;
           gap: 20px;
@@ -2671,6 +2640,63 @@ export default function PuneetZip() {
           color: #0369a1;
         }
 
+        .PlacementItem {
+          background: white;
+          border: 1px solid #e2e8f0;
+          border-radius: 8px;
+          padding: 16px;
+          margin-bottom: 12px;
+        }
+
+        .PlacementHeader {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          margin-bottom: 12px;
+        }
+
+        .PlacementContent {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 16px;
+          align-items: end;
+        }
+
+        .QuantityInput {
+          padding: 8px 12px;
+          border: 1px solid #e2e8f0;
+          border-radius: 6px;
+          font-size: 0.9rem;
+          width: 100%;
+        }
+
+        .QuantityInput:focus {
+          outline: none;
+          border-color: #8b5cf6;
+          box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+        }
+
+        .ZipTypeSelect {
+          padding: 8px 12px;
+          border: 1px solid #e2e8f0;
+          border-radius: 6px;
+          font-size: 0.9rem;
+          width: 100%;
+          background: white;
+        }
+
+        .FormField {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+
+        .FormField label {
+          font-size: 0.8rem;
+          color: #64748b;
+          font-weight: 600;
+        }
+
         .Dialog {
           position: fixed;
           top: 50%;
@@ -2729,7 +2755,7 @@ export default function PuneetZip() {
           margin: 24px 0 20px;
         }
 
-        .Field input {
+        .Field input, .Field select {
           width: 100%;
           padding: 16px 20px;
           border-radius: 14px;
@@ -2742,7 +2768,7 @@ export default function PuneetZip() {
           font-weight: 500;
         }
 
-        .Field input:focus {
+        .Field input:focus, .Field select:focus {
           border-color: #8b5cf6;
           box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.15);
         }
@@ -2784,93 +2810,6 @@ export default function PuneetZip() {
           background: rgba(0,0,0,0.5);
           backdrop-filter: blur(8px);
           z-index: 1000;
-        }
-
-        .ConfigStatus {
-          font-size: 0.8rem;
-          color: #64748b;
-          margin-left: auto;
-          background: #f1f5f9;
-          padding: 4px 8px;
-          border-radius: 6px;
-        }
-
-        .ConfigStatus.loading {
-          color: #f59e0b;
-          background: #fef3c7;
-        }
-
-        .ConfigStatus.loaded {
-          color: #059669;
-          background: #d1fae5;
-        }
-
-        .ConfigStatus.error {
-          color: #dc2626;
-          background: #fecaca;
-        }
-
-        .PlacementItem {
-          background: white;
-          border: 1px solid #e2e8f0;
-          border-radius: 8px;
-          padding: 16px;
-          margin-bottom: 12px;
-        }
-
-        .PlacementHeader {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          margin-bottom: 12px;
-        }
-
-        .PlacementContent {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 16px;
-          align-items: end;
-        }
-
-        .QuantityInput {
-          padding: 8px 12px;
-          border: 1px solid #e2e8f0;
-          border-radius: 6px;
-          font-size: 0.9rem;
-          width: 100%;
-        }
-
-        .QuantityInput:focus {
-          outline: none;
-          border-color: #8b5cf6;
-          box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
-        }
-
-        .ZipTypeSelect {
-          padding: 8px 12px;
-          border: 1px solid #e2e8f0;
-          border-radius: 6px;
-          font-size: 0.9rem;
-          width: 100%;
-          background: white;
-        }
-
-        .ZipTypeSelect:focus {
-          outline: none;
-          border-color: #8b5cf6;
-          box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
-        }
-
-        .FormField {
-          display: flex;
-          flex-direction: column;
-          gap: 6px;
-        }
-
-        .FormField label {
-          font-size: 0.8rem;
-          color: #64748b;
-          font-weight: 600;
         }
         `}
       </style>
@@ -2933,7 +2872,6 @@ export default function PuneetZip() {
         )}
       </AnimatePresence>
 
-      {/* Loading state for initial data */}
       {loadingZipQuality && !matrix && (
         <div style={{ textAlign: 'center', padding: '40px' }}>
           <div className="Spinner" style={{ margin: '0 auto', width: '32px', height: '32px' }}></div>
@@ -3007,49 +2945,80 @@ export default function PuneetZip() {
                     <tr>{columns.map((c, i) => <th key={`${c || 'blank'}-${i}`}>{c || '\u00A0'}</th>)}</tr>
                   </thead>
                   <tbody>
-                    {matrix.rows.map((r, idx) => (
-                      <tr key={idx} className={blockedShades.has(r.color) ? 'blocked-row' : ''}>
-                        <td>
-                          {r.color}
-                          {blockedShades.has(r.color) && (
-                            <span style={{ marginLeft: '8px', color: '#ef4444', fontSize: '0.8rem' }}>
-                              <FiLock /> Ordered
-                            </span>
-                          )}
-                        </td>
-                        <td className="num">{r.cuttingTable ?? ''}</td>
-                        {matrix.sizes.map((s) => (
-                          <td key={s} className="num">{r.sizes?.[s] ?? ''}</td>
-                        ))}
-                        <td className="num strong">{r.totalPcs ?? ''}</td>
-                        <td>
-                          {blockedShades.has(r.color) ? (
-                            <div style={{ 
-                              padding: '8px 12px', 
-                              backgroundColor: '#fef2f2', 
-                              border: '1px solid #fecaca',
-                              borderRadius: '8px',
-                              color: '#dc2626',
-                              fontSize: '0.9rem',
-                              textAlign: 'center'
-                            }}>
-                              <FiLock /> Already Ordered
-                            </div>
-                          ) : (
-                            <select 
-                              className="ZipSelect"
-                              value={zipSelections[r.color] || ''}
-                              onChange={(e) => handleZipChange(r.color, e.target.value)}
-                              disabled={blockedShades.has(r.color)}
-                            >
-                              <option value="">Select Color</option>
-                              <option value="Coloured">Coloured</option>
-                              <option value="Black">Black</option>
-                            </select>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                    {matrix.rows.map((r, idx) => {
+                      const pending = pendingInfo?.get(r.color);
+                      return (
+                        <tr key={idx} className={blockedShades.has(r.color) ? 'blocked-row' : ''}>
+                          <td>
+                            {r.color}
+                            {blockedShades.has(r.color) && (
+                              <span style={{ marginLeft: '8px', color: '#ef4444', fontSize: '0.8rem' }}>
+                                <FiLock /> Fully Ordered
+                              </span>
+                            )}
+                            {pending?.status === 'partial' && (
+                              <span style={{ marginLeft: '8px', color: '#f59e0b', fontSize: '0.7rem' }}>
+                                (Pending: {pending.remaining}pcs)
+                              </span>
+                            )}
+                          </td>
+                          <td className="num">{r.cuttingTable ?? ''}</td>
+                          {matrix.sizes.map((s) => (
+                            <td key={s} className="num">{r.sizes?.[s] ?? ''}</td>
+                          ))}
+                          <td className="num strong">{r.totalPcs ?? ''}</td>
+                          <td>
+                            {blockedShades.has(r.color) ? (
+                              <div style={{ 
+                                padding: '8px 12px', 
+                                backgroundColor: '#fef2f2', 
+                                border: '1px solid #fecaca',
+                                borderRadius: '8px',
+                                color: '#dc2626',
+                                fontSize: '0.9rem',
+                                textAlign: 'center'
+                              }}>
+                                <FiLock /> Ordered
+                              </div>
+                            ) : pending?.status === 'partial' ? (
+                              <div>
+                                <select 
+                                  className="ZipSelect"
+                                  value={zipSelections[r.color] || ''}
+                                  onChange={(e) => handleZipChange(r.color, e.target.value)}
+                                  style={{ marginBottom: '8px' }}
+                                >
+                                  <option value="">Select Color</option>
+                                  <option value="Coloured">Coloured</option>
+                                  <option value="Black">Black</option>
+                                </select>
+                                <div style={{ 
+                                  fontSize: '0.7rem', 
+                                  color: '#f59e0b',
+                                  marginTop: '4px',
+                                  padding: '4px 6px',
+                                  backgroundColor: '#fef3c7',
+                                  borderRadius: '4px'
+                                }}>
+                                  Ordered: {pending.ordered} pcs<br/>
+                                  Remaining: {pending.remaining} pcs
+                                </div>
+                              </div>
+                            ) : (
+                              <select 
+                                className="ZipSelect"
+                                value={zipSelections[r.color] || ''}
+                                onChange={(e) => handleZipChange(r.color, e.target.value)}
+                              >
+                                <option value="">Select Color</option>
+                                <option value="Coloured">Coloured</option>
+                                <option value="Black">Black</option>
+                              </select>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                   <tfoot>
                     <tr>
@@ -3067,7 +3036,6 @@ export default function PuneetZip() {
             </div>
           </div>
 
-          {/* Zip Quality Section */}
           <div className="ZipQualityPanel">
             <div className="PanelHeader">
               <FiPackage />
@@ -3102,9 +3070,6 @@ export default function PuneetZip() {
               }}>
                 <FiAlertTriangle style={{ fontSize: '2rem', marginBottom: '12px' }} />
                 <p>{zipDataError}</p>
-                <p style={{ fontSize: '0.9rem', marginTop: '8px' }}>
-                  Required columns: ZIP Type, Color, Approx. Price (₹)
-                </p>
               </div>
             ) : zipQualityData.length === 0 ? (
               <div style={{ 
@@ -3117,13 +3082,9 @@ export default function PuneetZip() {
               }}>
                 <FiAlertTriangle style={{ fontSize: '2rem', marginBottom: '12px' }} />
                 <p>No zip quality data found. Please check your Google Sheet.</p>
-                <p style={{ fontSize: '0.9rem', marginTop: '8px' }}>
-                  Required columns: ZIP Type, Color, Approx. Price (₹)
-                </p>
               </div>
             ) : (
               <div className="ZipQualityForm">
-                {/* Zip Placement Selection with Quantity and Zip Type */}
                 {zipPlacementOptions.length > 0 && (
                   <div className="PlacementSection">
                     <h4>Select the items where the zips are placed in this article:</h4>
@@ -3143,7 +3104,6 @@ export default function PuneetZip() {
                       ))}
                     </div>
 
-                    {/* Placement Configuration */}
                     {selectedPlacements.length > 0 && (
                       <div>
                         <h4 style={{ margin: '20px 0 16px 0', color: '#475569', fontSize: '1rem' }}>
@@ -3187,7 +3147,6 @@ export default function PuneetZip() {
                   </div>
                 )}
 
-                {/* Cost Breakdown */}
                 {selectedPlacements.length > 0 && (
                   <div className="CostBreakdown">
                     <h4>Cost Breakdown</h4>
@@ -3209,17 +3168,19 @@ export default function PuneetZip() {
                       let placementSubtotal = 0;
                       const costItems = [];
 
-                      // Calculate costs for this placement
                       matrix.rows.forEach((row) => {
                         const color = row.color;
                         
-                        // Skip blocked shades and empty selections
                         if (blockedShades.has(color)) return;
                         
                         const zipColor = zipSelections[color];
                         if (zipColor && zipColor.trim() !== '') {
                           const price = getZipPrice(zipType, zipColor);
-                          const pieces = row.totalPcs || 0;
+                          let pieces = row.totalPcs || 0;
+                          const pending = pendingInfo?.get(color);
+                          if (pending?.status === 'partial' && pending.remaining > 0) {
+                            pieces = pending.remaining;
+                          }
                           
                           if (price > 0 && pieces > 0) {
                             const itemTotal = (price * pieces) * quantity;
@@ -3281,9 +3242,8 @@ export default function PuneetZip() {
                           )}
                         </div>
                       );
-                    }).filter(Boolean)}
+                    })}
 
-                    {/* Grand Total */}
                     {totalCost > 0 ? (
                       <div className="TotalCost">
                         <span>Grand Total Cost:</span>
@@ -3298,34 +3258,7 @@ export default function PuneetZip() {
                         borderRadius: '8px',
                         marginTop: '16px'
                       }}>
-                        No zip costs calculated. Please ensure:
-                        <ul style={{ textAlign: 'left', margin: '12px 0', paddingLeft: '20px' }}>
-                          <li>Zip types are selected for each placement</li>
-                          <li>Zip colors are selected in the cutting matrix</li>
-                          <li>Shades are not blocked by existing orders</li>
-                        </ul>
-                      </div>
-                    )}
-
-                    {/* Debug Information - Remove this after testing */}
-                    {process.env.NODE_ENV === 'development' && (
-                      <div style={{ 
-                        background: '#f3f4f6', 
-                        padding: '16px', 
-                        borderRadius: '8px', 
-                        marginTop: '16px',
-                        fontSize: '12px',
-                        fontFamily: 'monospace',
-                        border: '1px dashed #d1d5db'
-                      }}>
-                        <h5 style={{ margin: '0 0 8px 0', color: '#374151' }}>Debug Info:</h5>
-                        <div>Selected Placements: {JSON.stringify(selectedPlacements)}</div>
-                        <div>Placement Quantities: {JSON.stringify(placementQuantities)}</div>
-                        <div>Placement Zip Types: {JSON.stringify(placementZipTypes)}</div>
-                        <div>Blocked Shades: {Array.from(blockedShades).join(', ') || 'None'}</div>
-                        <div>Available Zip Types: {availableZipTypes.join(', ')}</div>
-                        <div>Total Cost: ₹{totalCost}</div>
-                        <div>Zip Selections Count: {Object.values(zipSelections).filter(val => val && val.trim() !== '').length}</div>
+                        No zip costs calculated. Please ensure zip types and colors are selected.
                       </div>
                     )}
                   </div>
@@ -3345,7 +3278,6 @@ export default function PuneetZip() {
         )
       )}
 
-      {/* Issue dialog */}
       {showIssueDialog && (
         <>
           <div className="Backdrop" onClick={closeIssueDialog} />
@@ -3396,23 +3328,11 @@ export default function PuneetZip() {
               </datalist>
             </label>
 
-            {/* Priority Field */}
             <label className="Field">
               <div className="FieldLabel"><FiAlertTriangle /> Priority</div>
               <select 
                 value={priority}
                 onChange={(e) => setPriority(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '16px 20px',
-                  borderRadius: '14px',
-                  border: '2px solid #e2e8f0',
-                  background: 'white',
-                  color: '#1e293b',
-                  outline: 'none',
-                  fontSize: '1.1rem',
-                  fontWeight: '500'
-                }}
               >
                 <option value="Low">Low</option>
                 <option value="Normal">Normal</option>
@@ -3431,7 +3351,7 @@ export default function PuneetZip() {
             <div className="DialogActions">
               <button className="BaseBtn GhostBtn" type="button" onClick={closeIssueDialog} disabled={confirming}>Cancel</button>
               <button className="BaseBtn PrimaryBtn" type="button" onClick={handleConfirmIssue} disabled={confirming} title="Generate PDF">
-                {confirming ? <div className="Spinner"></div> : <><FiDownload /> Generate PDF</> }
+                {confirming ? <div className="Spinner"></div> : <><FiDownload /> Generate PDF</>}
               </button>
             </div>
           </div>

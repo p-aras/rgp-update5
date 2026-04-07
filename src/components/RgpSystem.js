@@ -73,7 +73,7 @@ export default function RgpSystem() {
           {items.map((item, i) => (
             <div key={i} style={styles.row}>
               <input
-                style={styles.cell}
+                style={styles.cell}a
                 value={item.itemCode}
                 onChange={(e) => updateItem(i, "itemCode", e.target.value)}
                 placeholder="TRIM-01"

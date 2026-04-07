@@ -3,7 +3,7 @@ import { jsPDF } from "jspdf";
 
 // MUST be your deployed /exec URL
 const WEB_APP_URL =
-  "https://script.google.com/macros/s/AKfycbxNr0GJ1v7_SA_T7FMvLgaO2Zjfcmu6ms35n35VEJ1UfyJEOXNkw2Lj4CSdzKmsCBa7Ig/exec";
+  "https://script.google.com/macros/s/AKfycby9OHqy8_1GtE23Y0g0ZzVEycaygDtIT07VoFhI93nnCsovFBLs47rDk77uXDNdmoab7A/exec";
 
 // Enhanced QR code generation with multiple fallbacks
 const generateQRCode = async (url) => {
@@ -64,266 +64,49 @@ function Emoji({ children, size = 18, mr = 0, ml = 0 }) {
 }
 
 const DEPT_OPTIONS = [
-  // Production Flow
-  "Cutting",
-  "Stitching",
-  "Finishing",
-  "Quality",
-  "Packing",
-  "Store",
-
-  // Textile & Fabric Processing
-  "Knitting",
-  "Weaving",
-  "Dyeing",
-  "Washing",
-  "Bleaching",
-  "Printing",
-
-  // Embellishments
-  "Embroidery",
-  "Handwork",
-  "Applique",
-
-  // Material & Production Support
-  "Fabric Store",
-  "Accessories Store",
-  "Sampling",
-  "Pattern Making",
-  "CAD",
-  "Merchandising",
-  "Production",
-  "Maintenance",
-  "Cutting Room",
-  "Trimming",
-
-  // Logistics & Others
-  "Dispatch",
-  "HR",
-  "Accounts",
-  "Admin",
-  "Security",
-  "jacket",
-
-  // Misc
-  "Other"
+  "Cutting", "Stitching", "Finishing", "Quality", "Packing", "Store",
+  "Knitting", "Weaving", "Dyeing", "Washing", "Bleaching", "Printing",
+  "Embroidery", "Handwork", "Applique", "Fabric Store", "Accessories Store",
+  "Sampling", "Pattern Making", "CAD", "Merchandising", "Production",
+  "Maintenance", "Cutting Room", "Trimming", "Dispatch", "HR", "Accounts",
+  "Admin", "Security", "jacket", "Other"
 ];
 
 const UOM_OPTIONS = [
-  // ========== LENGTH / LINEAR ==========
-  "M",      // Meters
-  "CM",     // Centimeters
-  "MM",     // Millimeters
-  "KM",     // Kilometers
-  "IN",     // Inches
-  "FT",     // Feet
-  "YD",     // Yards
-  "MI",     // Miles
-
-  // ========== FABRIC & TEXTILE SPECIFIC ==========
-  "ROLL",   // Rolls
-  "BALE",   // Bales
-  "BUNDLE", // Bundles
-  "THAN",   // Thans
-  "PKT",    // Packs
-  "BOLT",   // Bolts
-  "PIECE",  // Piece (for fabric cuts)
-  "CUT",    // Cut lengths
-  
-  // ========== WEIGHT ==========
-  "KG",     // Kilograms
-  "GM",     // Grams
-  "MG",     // Milligrams
-  "TON",    // Metric Tons
-  "LBS",    // Pounds
-  "OZ",     // Ounces
-
-  // ========== QUANTITY / COUNT ==========
-  "PCS",    // Pieces
-  "UNIT",   // Units
-  "PAIR",   // Pairs
-  "SET",    // Sets
-  "DOZEN",  // Dozens
-  "GROSS",  // Gross (144 units)
-  "REAM",   // Reams (paper/thread)
-  "COUNT",  // Count (for small items)
-  "EA",     // Each
-  "NO",     // Number
-
-  // ========== AREA ==========
-  "SQM",    // Square Meters
-  "SQCM",   // Square Centimeters
-  "SQFT",   // Square Feet
-  "SQIN",   // Square Inches
-  "SQYD",   // Square Yards
-  "ACRE",   // Acres
-  "HECTARE", // Hectares
-
-  // ========== VOLUME ==========
-  "L",      // Liters
-  "ML",     // Milliliters
-  "CC",     // Cubic Centimeters
-  "M3",     // Cubic Meters
-  "GAL",    // Gallons
-  "CBM",    // Cubic Meters (shipping)
-
-  // ========== TIME ==========
-  "HR",     // Hours
-  "MIN",    // Minutes
-  "DAY",    // Days
-  "WK",     // Weeks
-  "MONTH",  // Months
-  "YR",     // Years
-
-  // ========== TEXTILE TRIMS & ACCESSORIES ==========
-  "CONE",   // Cones
-  "CARD",   // Cards
-  "SHEET",  // Sheets
-  "SHT",    // Sheets (short)
-  "STRIP",  // Strips
-  "POLY",   // Polybags
-  "BOX",    // Boxes
-  "CARTON", // Cartons
-  "PACK",   // Packs
-  "TUBE",   // Tubes
-  "SPOOL",  // Spools
-  "REEL",   // Reels
-  "BOBBIN", // Bobbins
-  "HANK",   // Hanks (yarn)
-
-  // ========== ELECTRICAL / HARDWARE ==========
-  "MTR",    // Meter (electrical wire)
-  "COIL",   // Coils
-  "LOT",    // Lots
-  "KIT",    // Kits
-  "ASSY",   // Assembly
-
-  // ========== PACKAGING ==========
-  "BAG",    // Bags
-  "SACK",   // Sacks
-  "DRUM",   // Drums
-  "CAN",    // Cans
-  "JAR",    // Jars
-  "BOTTLE", // Bottles
-  "TIN",    // Tins
-  "CASE",   // Cases
-  "CRATE",  // Crates
-  "PALLET", // Pallets
-
-  // ========== FINISHED GOODS ==========
-  "GARMENT", // Garments
-  "SHIRT",   // Shirts
-  "PANT",    // Pants
-  "DRESS",   // Dresses
-  "JACKET",  // Jackets
-  "SUIT",    // Suits
-
-  // ========== CHEMICAL / LIQUID ==========
-  "LTR",    // Liters (chemicals)
-  "KG/L",   // Kilograms per liter
-  "BOTTLE", // Bottles (chemicals)
-  "DRUM",   // Drums (chemicals)
-  "CANISTER", // Canisters
-
-  // ========== RETAIL / WHOLESALE ==========
-  "DISPLAY",  // Display units
-  "RACK",     // Racks
-  "STAND",    // Stands
-  "MANNEQUIN", // Mannequins
-
-  // ========== CONSTRUCTION / BUILDING ==========
-  "SLAB",     // Slabs
-  "BAR",      // Bars (steel)
-  "ROD",      // Rods
-  "PLATE",    // Plates
-  "BEAM",     // Beams
-  "BLOCK",    // Blocks
-
-  // ========== SOFTWARE / DIGITAL ==========
-  "LICENSE",  // Licenses
-  "USER",     // Users
-  "SEAT",     // Seats
-  "SERVER",   // Servers
-  "DOMAIN",   // Domains
-
-  // ========== TEXTILE MANUFACTURING ==========
-  "PATTERN",  // Pattern
-  "SAMPLE",   // Sample
-  "SWATCH",   // Swatch
-  "PANEL",    // Panel
-  "PLY",      // Ply (fabric layers)
-  "LAYER",    // Layers
-  "RUN",      // Production runs
-
-  // ========== RIBBONS & TAPES ==========
-  "REEL",     // Reels (ribbon)
-  "SPOOL",    // Spools (thread)
-  "YARD",     // Yards (ribbon)
-  "ROLL",     // Rolls (tape)
-
-  // ========== BUTTONS & FASTENERS ==========
-  "GROSS",    // Gross (buttons)
-  "DOZEN",    // Dozen (buttons)
-  "PKT",      // Packets (buttons)
-  "CARD",     // Cards (buttons)
-
-  // ========== ZIPPERS & DORI ==========
-  "PIECE",    // Pieces (zippers)
-  "METER",    // Meters (zipper tape)
-  "DOZEN",    // Dozen (zipper sliders)
-
-  // ========== THREAD ==========
-  "CONE",     // Cones (thread)
-  "SPOOL",    // Spools (thread)
-  "REEL",     // Reels (thread)
-  "TUBE",     // Tubes (thread)
-
-  // ========== LABELS & TAGS ==========
-  "ROLL",     // Rolls (labels)
-  "SHEET",    // Sheets (tags)
-  "PKT",      // Packets (labels)
-  "REEL",     // Reels (label tape)
-
-  // ========== INTERNATIONAL STANDARDS ==========
-  "CTN",      // Carton (shipping)
-  "PLT",      // Pallet
-  "SKU",      // Stock Keeping Unit
-  "BATCH",    // Batch
-  "LOT",      // Lot number
-
-  // ========== SERVICE UNITS ==========
-  "HOUR",     // Hour (services)
-  "DAY",      // Day (rental)
-  "PROJECT",  // Project basis
-  "SERVICE",  // Service unit
-
-  // ========== METRIC PREFIXES ==========
-  "MM",       // Millimeter
-  "CM",       // Centimeter
-  "DM",       // Decimeter
-  "M",        // Meter
-  "DAM",      // Decameter
-  "HM",       // Hectometer
-  "KM",       // Kilometer
-
-  // ========== CATCH-ALL ==========
-  "OTHER",
-  "VARIOUS",
-  "MIXED",
-  "ASSORTED",
-  "CUSTOM"
+  "M", "CM", "MM", "KM", "IN", "FT", "YD", "MI", "ROLL", "BALE", "BUNDLE",
+  "THAN", "PKT", "BOLT", "PIECE", "CUT", "KG", "GM", "MG", "TON", "LBS", "OZ",
+  "PCS", "UNIT", "PAIR", "SET", "DOZEN", "GROSS", "REAM", "COUNT", "EA", "NO",
+  "SQM", "SQCM", "SQFT", "SQIN", "SQYD", "ACRE", "HECTARE", "L", "ML", "CC",
+  "M3", "GAL", "CBM", "HR", "MIN", "DAY", "WK", "MONTH", "YR", "CONE", "CARD",
+  "SHEET", "SHT", "STRIP", "POLY", "BOX", "CARTON", "PACK", "TUBE", "SPOOL",
+  "REEL", "BOBBIN", "HANK", "MTR", "COIL", "LOT", "KIT", "ASSY", "BAG", "SACK",
+  "DRUM", "CAN", "JAR", "BOTTLE", "TIN", "CASE", "CRATE", "PALLET", "GARMENT",
+  "SHIRT", "PANT", "DRESS", "JACKET", "SUIT", "LTR", "KG/L", "CANISTER", "OTHER"
 ];
 
 const RGP_TYPES = ["Fabric", "Tools", "Machine", "Sample", "Other"];
 
-// Updated RGP PDF Generator - Only QTY1 in total calculation
+// Prepared By & Authorized By Options
+const PREPARED_BY_OPTIONS = [
+  "RASHMI",
+  
+];
+
+const AUTHORIZED_BY_OPTIONS = [
+  "MOHIT SIR",
+  "EA",
+  "VARUN SIR",
+  "SAHIL CA",
+  
+];
+
+// Enhanced RGP PDF Generator - With Prepared By & Authorized By
 function generateRgpPDF({ payload, options = {} }) {
   const { qrEntryImage = null, qrReturnImage = null, qrSide = 96 } = options;
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   doc.setFont("helvetica", "normal");
   doc.setLineWidth(0.6);
 
-  // ---- helpers
   const page = { w: doc.internal.pageSize.getWidth(), h: doc.internal.pageSize.getHeight(), m: 40, gap: 12 };
   const setSize = (s) => doc.setFontSize(s);
   const bold = () => doc.setFont(undefined, "bold");
@@ -335,7 +118,6 @@ function generateRgpPDF({ payload, options = {} }) {
   const roundRect = (x, y, w, h, r = 7, style = "S") =>
     doc.roundedRect ? doc.roundedRect(x, y, w, h, r, r, style) : doc.rect(x, y, w, h, style);
 
-  // ---- frame & pagination
   const drawFrame = () => roundRect(16, 16, page.w - 32, page.h - 32, 8, "S");
   let y = page.m;
 
@@ -364,7 +146,6 @@ function generateRgpPDF({ payload, options = {} }) {
     return false;
   };
 
-  // ---- Title
   drawFrame();
   setSize(20);
   bold();
@@ -373,17 +154,10 @@ function generateRgpPDF({ payload, options = {} }) {
   line(page.m, y + 6, page.w - page.m, y + 6);
   y += 26;
 
-  // =========================
-  // TOP ROW:
-  // [ RGP DETAILS (wide) ] [ PARTY INFO (narrow) ] [ GATE ENTRY — SCAN ]
-  // =========================
+  // TOP ROW
   (function topRow() {
     const innerW = page.w - 2 * page.m;
-
-    // assign custom ratios
-    const rRGP = 0.44, rParty = 0.26, rGate = 0.30;
-
-    // convert to pixel widths
+    const rRGP = 0.40, rParty = 0.25, rGate = 0.35;
     const wAvail = innerW - page.gap * 2;
     const wRGP = Math.floor(wAvail * rRGP);
     const wParty = Math.floor(wAvail * rParty);
@@ -393,7 +167,6 @@ function generateRgpPDF({ payload, options = {} }) {
     const x2 = x1 + wRGP + page.gap;
     const x3 = x2 + wParty + page.gap;
 
-    // RGP DETAILS (left / wider)
     const metaPad = 12, lblW = 84;
     const mRows = [
       ["RGP #", (payload.rgpNo || "").replace(/\s+/g, "")],
@@ -401,11 +174,9 @@ function generateRgpPDF({ payload, options = {} }) {
       ["Type", payload.rgpType || ""],
       ...(payload.expectedReturnDate ? [["Expected Return", payload.expectedReturnDate]] : []),
       ...(payload.vehicleNo ? [["Vehicle No", payload.vehicleNo]] : []),
-      ...(payload.authorizedBy ? [["Authorized By", payload.authorizedBy]] : []),
     ];
     const metaH = 22 + mRows.length * 16 + 16;
 
-    // PARTY INFO (middle / narrower)
     const partyPad = 12;
     const partyBodyW = wParty - partyPad * 2;
     const partyLines = [
@@ -416,13 +187,10 @@ function generateRgpPDF({ payload, options = {} }) {
     ];
     const partyH = 22 + partyLines.filter(Boolean).length * 12 + 16;
 
-    // GATE ENTRY (right) — QR
     const gateH = QR_TITLE_H + 8 + QR_SIDE + 10;
-
     const blockH = Math.max(metaH, partyH, gateH);
     needSpace(blockH);
 
-    // Draw RGP DETAILS
     roundRect(x1, y, wRGP, blockH, 7, "S");
     setSize(10);
     bold(); text("RGP DETAILS", x1 + 12, y + 14); normal();
@@ -434,7 +202,6 @@ function generateRgpPDF({ payload, options = {} }) {
       my += 16;
     });
 
-    // Draw PARTY INFO
     roundRect(x2, y, wParty, blockH, 7, "S");
     setSize(10);
     bold(); text("PARTY / VENDOR", x2 + 12, y + 14); normal();
@@ -442,7 +209,6 @@ function generateRgpPDF({ payload, options = {} }) {
     let py = y + 30;
     partyLines.forEach((ln) => { if (ln) { text(ln, x2 + partyPad, py); py += 12; } });
 
-    // Draw GATE ENTRY SCANNER
     roundRect(x3, y, wGate, blockH, 7, "S");
     setSize(10);
     bold(); text("GATE ENTRY — SCAN", x3 + 12, y + 14); normal();
@@ -456,18 +222,14 @@ function generateRgpPDF({ payload, options = {} }) {
     y += blockH + 16;
   })();
 
-  // =========================
-  // ITEMS TABLE WITH LOT NUMBER
-  // =========================
+  // ITEMS TABLE
   (function drawTable() {
     const x0 = page.m, innerW = page.w - 2 * page.m;
     setSize(10); normal();
 
-    // Process entries for display - Only QTY1 in total calculation
     const rows = (payload.entries || []).map((r, i) => {
       const qty1 = (+r.qty1 || 0).toLocaleString();
       const qty2 = (+r.qty2 || 0).toLocaleString();
-      // CHANGED: Only QTY1 goes into total calculation
       const totalQty = (+r.qty1 || 0);
       return { 
         ...r, 
@@ -481,34 +243,25 @@ function generateRgpPDF({ payload, options = {} }) {
 
     const measureMax = (arr, key) => arr.reduce((m, r) => Math.max(m, doc.getTextWidth(String(r[key] || ""))), 0);
     
-    // Define minimum column widths - added lot number column
     const MIN = { 
-      line: 28,
-      lotNo: 45, // NEW: Lot Number column
-      department: 80, 
-      description: 120, 
-      purpose: 70,
-      uom: 45, 
-      qty1: 40, 
-      qty2: 40,
-      totalQty: 45
+      line: 28, lotNo: 50, department: 80, description: 120, 
+      purpose: 70, uom: 45, qty1: 40, qty2: 40, totalQty: 45
     };
 
     const qty1W = Math.max(MIN.qty1, measureMax(rows, "_qty1Str") + 14);
     const qty2W = Math.max(MIN.qty2, measureMax(rows, "_qty2Str") + 14);
     const totalQtyW = Math.max(MIN.totalQty, measureMax(rows, "_totalQtyStr") + 16);
-    const lotNoW = Math.max(MIN.lotNo, measureMax(rows, "lotNo") + 10); // NEW: Lot number width
+    const lotNoW = Math.max(MIN.lotNo, measureMax(rows, "lotNo") + 10);
 
     const lineW = MIN.line, depW = MIN.department, purposeW = MIN.purpose, uomW = MIN.uom;
-    const used = lineW + lotNoW + depW + purposeW + uomW + qty1W + qty2W + totalQtyW; // Added lotNoW
+    const used = lineW + lotNoW + depW + purposeW + uomW + qty1W + qty2W + totalQtyW;
     const descW = Math.max(MIN.description, innerW - used);
     const diff = innerW - (used + descW);
     const adjTotalQtyW = totalQtyW + diff;
 
-    // Updated columns array with lot number
     const cols = [
       { key: "line", title: "#", w: lineW, align: "right" },
-      { key: "lotNo", title: "LOT NO.", w: lotNoW }, // NEW: Lot Number column
+      { key: "lotNo", title: "LOT NO.", w: lotNoW },
       { key: "department", title: "DEPARTMENT", w: depW },
       { key: "description", title: "DESCRIPTION", w: descW },
       { key: "purpose", title: "PURPOSE", w: purposeW },
@@ -544,15 +297,10 @@ function generateRgpPDF({ payload, options = {} }) {
       const yy = y + 12;
       
       rtext(r._i, xs[1] - 6, yy);
-      text(r.lotNo || "", xs[1] + 6, yy); // NEW: Display lot number
+      text(r.lotNo || "", xs[1] + 6, yy);
       text(r.department || "", xs[2] + 6, yy);
-      
-      // Description (multi-line)
       descLines.forEach((ln, j) => text(ln, xs[3] + 6, yy + j * 12));
-      
-      // Purpose (multi-line)
       purposeLines.forEach((ln, j) => text(ln, xs[4] + 6, yy + j * 12));
-      
       text(r.uom || "", (xs[5] + xs[6]) / 2, yy, { align: "center" });
       rtext(r._qty1Str, xs[7] - 6, yy);
       rtext(r._qty2Str, xs[8] - 6, yy);
@@ -565,22 +313,17 @@ function generateRgpPDF({ payload, options = {} }) {
     let totalQuantity = 0; 
     rows.forEach((r, i) => { totalQuantity += drawRow(r, i); });
     
-    // Total row
     const totalH = 26;
     needSpace(totalH, true);
     doc.rect(x0, y, innerW, totalH);
     line(xs[xs.length - 2], y, xs[xs.length - 2], y + totalH);
     setSize(11); bold();
     text("TOTAL QUANTITY", x0 + 8, y + 17);
-    rtext(totalQuantity.toLocaleString(), xs[9] - 8, y + 17); // Updated index for total quantity
+    rtext(totalQuantity.toLocaleString(), xs[9] - 8, y + 17);
     normal(); y += totalH;
   })();
 
-  // =========================
-  // BOTTOM:
-  // left = MATERIAL RETURN — SCAN (QR inside)
-  // right (spans 2 cols) = REMARKS
-  // =========================
+  // BOTTOM BLOCKS with Prepared By & Authorized By
   (function bottomBlocks() {
     const innerW = page.w - 2 * page.m;
     const colW = (innerW - page.gap * 2) / 3;
@@ -589,7 +332,7 @@ function generateRgpPDF({ payload, options = {} }) {
     const sigTop = page.h - page.m - SIG_H;
     const blockTop = sigTop - 12 - BOTTOM_QR_H;
 
-    // Left small box: MATERIAL RETURN SCAN + QR
+    // Left box: MATERIAL RETURN SCAN
     roundRect(x1, blockTop, colW, BOTTOM_QR_H, 7, "S");
     setSize(10);
     bold(); text("MATERIAL RETURN", x1 + 10, blockTop + 14); normal();
@@ -600,14 +343,12 @@ function generateRgpPDF({ payload, options = {} }) {
       try { doc.addImage(qrReturnImage, "PNG", qx, qy, QR_SIDE, QR_SIDE); } catch {}
     }
 
-    // Wide right box (spans two columns): REMARKS
+    // Wide right box: REMARKS
     const bigW = colW * 2 + page.gap;
     roundRect(x2, blockTop, bigW, BOTTOM_QR_H, 7, "S");
     setSize(10);
     bold(); text("REMARKS", x2 + 10, blockTop + 14); normal();
     line(x2 + 10, blockTop + 18, x2 + bigW - 10, blockTop + 18);
-    
-    // Add remarks text if available
     if (payload.remarks) {
       const remarkLines = wrap(payload.remarks, bigW - 20);
       let ry = blockTop + 30;
@@ -617,25 +358,26 @@ function generateRgpPDF({ payload, options = {} }) {
       });
     }
 
-    // Signatures (3 equal)
+    // Signatures with Prepared By & Authorized By
     [x1, x2, x3].forEach((x) => roundRect(x, sigTop, colW, SIG_H, 7, "S"));
     bold();
-    text("ISSUED BY", x1 + 10, sigTop + 16);
-    text("RECEIVED BY", x2 + 10, sigTop + 16);
+    text("PREPARED BY", x1 + 10, sigTop + 16);
+    text("AUTHORIZED BY", x2 + 10, sigTop + 16);
     text("SECURITY", x3 + 10, sigTop + 16);
     normal();
 
-    const writeSig = (x, showName) => {
+    const writeSig = (x, showPrepared = false, showAuthorized = false) => {
       const baseY = sigTop + SIG_H - 26;
       text("Signature", x + 10, baseY - 10);
       line(x + 10, baseY - 8, x + colW - 10, baseY - 8);
       text("Name:", x + 10, baseY + 2);
-      if (showName && payload.authorizedBy) text(payload.authorizedBy, x + 46, baseY + 2);
+      if (showPrepared && payload.preparedBy) text(payload.preparedBy, x + 46, baseY + 2);
+      if (showAuthorized && payload.authorizedBy) text(payload.authorizedBy, x + 46, baseY + 2);
       text("Date:", x + 10, baseY + 14);
     };
-    writeSig(x1, true); // Issued By - show authorized name
-    writeSig(x2, false); // Received By - blank
-    writeSig(x3, false); // Security - blank
+    writeSig(x1, true, false); // Prepared By
+    writeSig(x2, false, true); // Authorized By
+    writeSig(x3, false, false); // Security
   })();
 
   return doc;
@@ -646,35 +388,21 @@ function PreviewModal({ payload, onClose, onConfirm, loading }) {
   const [previewPdfUrl, setPreviewPdfUrl] = useState(null);
 
   useEffect(() => {
-    // Generate preview PDF
     const generatePreview = () => {
       try {
-        // Create a temporary RGP number for preview
         const previewPayload = {
           ...payload,
           rgpNo: payload.rgpNo === "(auto)" ? "RGP-PREVIEW-001" : payload.rgpNo
         };
-
-        const doc = generateRgpPDF({ 
-          payload: previewPayload, 
-          options: { 
-            qrEntryImage: null, 
-            qrReturnImage: null 
-          } 
-        });
-
+        const doc = generateRgpPDF({ payload: previewPayload, options: { qrEntryImage: null, qrReturnImage: null } });
         const pdfBlob = doc.output('blob');
         const pdfUrl = URL.createObjectURL(pdfBlob);
         setPreviewPdfUrl(pdfUrl);
-
-        return () => {
-          if (pdfUrl) URL.revokeObjectURL(pdfUrl);
-        };
+        return () => { if (pdfUrl) URL.revokeObjectURL(pdfUrl); };
       } catch (error) {
         console.error("Failed to generate preview:", error);
       }
     };
-
     generatePreview();
   }, [payload]);
 
@@ -683,49 +411,29 @@ function PreviewModal({ payload, onClose, onConfirm, loading }) {
       <div style={modalStyles.modal}>
         <div style={modalStyles.header}>
           <h2 style={modalStyles.title}>
-            <Emoji size={20} mr={8}>👁️</Emoji>
-            Preview RGP
+            <Emoji size={22} mr={8}>👁️</Emoji>
+            Preview RGP Document
           </h2>
-          <button 
-            onClick={onClose} 
-            style={modalStyles.closeButton}
-            disabled={loading}
-          >
-            <Emoji size={16}>❌</Emoji>
+          <button onClick={onClose} style={modalStyles.closeButton} disabled={loading}>
+            <Emoji size={18}>✕</Emoji>
           </button>
         </div>
-
         <div style={modalStyles.previewContainer}>
           {previewPdfUrl ? (
-            <iframe
-              src={previewPdfUrl}
-              title="RGP Preview"
-              style={modalStyles.previewFrame}
-            />
+            <iframe src={previewPdfUrl} title="RGP Preview" style={modalStyles.previewFrame} />
           ) : (
             <div style={modalStyles.loadingPreview}>
-              <Emoji size={32}>⏳</Emoji>
+              <Emoji size={40}>⏳</Emoji>
               <p>Generating preview...</p>
             </div>
           )}
         </div>
-
         <div style={modalStyles.footer}>
-          <button 
-            onClick={onClose} 
-            style={modalStyles.cancelButton}
-            disabled={loading}
-          >
+          <button onClick={onClose} style={modalStyles.cancelButton} disabled={loading}>
             <Emoji size={16} mr={6}>←</Emoji> Back to Edit
           </button>
-          <button 
-            onClick={onConfirm} 
-            style={modalStyles.confirmButton}
-            disabled={loading}
-          >
-            <Emoji size={16} mr={6}>
-              {loading ? "⏳" : "✅"}
-            </Emoji>
+          <button onClick={onConfirm} style={modalStyles.confirmButton} disabled={loading}>
+            <Emoji size={16} mr={6}>{loading ? "⏳" : "✓"}</Emoji>
             {loading ? "Submitting..." : "Confirm & Submit"}
           </button>
         </div>
@@ -734,156 +442,48 @@ function PreviewModal({ payload, onClose, onConfirm, loading }) {
   );
 }
 
-// Modal Styles
 const modalStyles = {
   overlay: {
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    backdropFilter: 'blur(8px)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 1000,
-    padding: '20px',
+    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(8px)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    zIndex: 1000, padding: '20px',
   },
   modal: {
-    backgroundColor: 'white',
-    borderRadius: '20px',
-    width: '90%',
-    maxWidth: '1200px',
-    maxHeight: '90vh',
-    display: 'flex',
-    flexDirection: 'column',
-    boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
-    overflow: 'hidden',
+    backgroundColor: 'white', borderRadius: '24px', width: '90%', maxWidth: '1200px',
+    maxHeight: '90vh', display: 'flex', flexDirection: 'column',
+    boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)', overflow: 'hidden',
   },
   header: {
-    padding: '24px 32px',
-    backgroundColor: '#f8fafc',
-    borderBottom: '2px solid #e2e8f0',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    padding: '28px 36px', backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0',
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
   },
-  title: {
-    margin: 0,
-    fontSize: '1.8rem',
-    fontWeight: '700',
-    color: '#00296b',
-    display: 'flex',
-    alignItems: 'center',
-  },
+  title: { margin: 0, fontSize: '1.9rem', fontWeight: '700', color: '#00296b', display: 'flex', alignItems: 'center' },
   closeButton: {
-    background: 'none',
-    border: '2px solid #e2e8f0',
-    borderRadius: '10px',
-    width: '44px',
-    height: '44px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    cursor: 'pointer',
-    fontSize: '18px',
-    transition: 'all 0.3s ease',
-    color: '#64748b',
-    ':hover': {
-      backgroundColor: '#f1f5f9',
-      borderColor: '#cbd5e1',
-    },
-    ':disabled': {
-      opacity: 0.5,
-      cursor: 'not-allowed',
-    },
+    background: 'none', border: '2px solid #e2e8f0', borderRadius: '12px', width: '48px', height: '48px',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+    fontSize: '20px', transition: 'all 0.3s ease', color: '#64748b',
   },
-  previewContainer: {
-    flex: 1,
-    padding: '24px',
-    overflow: 'auto',
-    backgroundColor: '#f1f5f9',
-  },
-  previewFrame: {
-    width: '100%',
-    height: '500px',
-    border: 'none',
-    borderRadius: '12px',
-    boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
-  },
-  loadingPreview: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: '500px',
-    color: '#64748b',
-    fontSize: '1.1rem',
-  },
-  footer: {
-    padding: '24px 32px',
-    backgroundColor: '#f8fafc',
-    borderTop: '2px solid #e2e8f0',
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: '16px',
-  },
+  previewContainer: { flex: 1, padding: '28px', overflow: 'auto', backgroundColor: '#f1f5f9' },
+  previewFrame: { width: '100%', height: '550px', border: 'none', borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' },
+  loadingPreview: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '550px', color: '#64748b' },
+  footer: { padding: '28px 36px', backgroundColor: '#f8fafc', borderTop: '2px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', gap: '20px' },
   cancelButton: {
-    padding: '14px 28px',
-    backgroundColor: 'white',
-    color: '#4b5563',
-    border: '2px solid #d1d5db',
-    borderRadius: '12px',
-    fontSize: '1rem',
-    fontWeight: '600',
-    cursor: 'pointer',
-    transition: 'all 0.3s ease',
-    display: 'flex',
-    alignItems: 'center',
-    fontFamily: 'inherit',
-    boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
-    ':hover:not(:disabled)': {
-      backgroundColor: '#f9fafb',
-      borderColor: '#9ca3af',
-      transform: 'translateY(-2px)',
-    },
-    ':disabled': {
-      opacity: 0.5,
-      cursor: 'not-allowed',
-    },
+    padding: '16px 32px', backgroundColor: 'white', color: '#4b5563', border: '2px solid #d1d5db',
+    borderRadius: '14px', fontSize: '1rem', fontWeight: '600', cursor: 'pointer',
+    transition: 'all 0.3s ease', display: 'flex', alignItems: 'center', fontFamily: 'inherit',
   },
   confirmButton: {
-    padding: '14px 32px',
-    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-    color: 'white',
-    border: 'none',
-    borderRadius: '12px',
-    fontSize: '1.1rem',
-    fontWeight: '700',
-    cursor: 'pointer',
-    transition: 'all 0.3s ease',
-    display: 'flex',
-    alignItems: 'center',
-    fontFamily: 'inherit',
-    boxShadow: '0 6px 20px rgba(16, 185, 129, 0.3)',
-    ':hover:not(:disabled)': {
-      transform: 'translateY(-3px)',
-      boxShadow: '0 10px 25px rgba(16, 185, 129, 0.4)',
-    },
-    ':disabled': {
-      background: 'linear-gradient(135deg, #9ca3af 0%, #6b7280 100%)',
-      cursor: 'not-allowed',
-      transform: 'none',
-    },
+    padding: '16px 36px', background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+    color: 'white', border: 'none', borderRadius: '14px', fontSize: '1.1rem', fontWeight: '700',
+    cursor: 'pointer', transition: 'all 0.3s ease', display: 'flex', alignItems: 'center',
+    fontFamily: 'inherit', boxShadow: '0 6px 20px rgba(16, 185, 129, 0.3)',
   },
 };
 
 export default function FabricRgpForm({ today = new Date(), onSubmit, onBack }) {
   const toYMD = (d) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
-      d.getDate()
-    ).padStart(2, "0")}`;
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
   const [form, setForm] = useState({
     rgpNo: "(auto)",
@@ -895,11 +495,10 @@ export default function FabricRgpForm({ today = new Date(), onSubmit, onBack }) 
     itemDesc: "",
     qty: "",
     uom: "",
-    entries: [
-      { lotNo: "", itemDesc: "", qty1: "", qty2: "", uom: "", department: "", purpose: "" },
-    ],
+    entries: [{ lotNo: "", itemDesc: "", qty1: "", qty2: "", uom: "", department: "", purpose: "" }],
     expectedReturnDate: "",
     vehicleNo: "",
+    preparedBy: "",
     authorizedBy: "",
     remarks: "",
   });
@@ -911,10 +510,15 @@ export default function FabricRgpForm({ today = new Date(), onSubmit, onBack }) 
   const [customUoms, setCustomUoms] = useState({});
   const [showPreview, setShowPreview] = useState(false);
   const [submissionComplete, setSubmissionComplete] = useState(false);
+  
+  // New states for Prepared By & Authorized By
+  const [isPreparedByCustom, setIsPreparedByCustom] = useState(false);
+  const [isAuthorizedByCustom, setIsAuthorizedByCustom] = useState(false);
+  const [preparedByCustomValue, setPreparedByCustomValue] = useState("");
+  const [authorizedByCustomValue, setAuthorizedByCustomValue] = useState("");
 
   const update = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
-  // entries helpers
   const updateEntry = (idx, key, val) =>
     setForm((f) => {
       const entries = [...(f.entries || [])];
@@ -925,30 +529,26 @@ export default function FabricRgpForm({ today = new Date(), onSubmit, onBack }) 
   const addRow = () =>
     setForm((f) => ({
       ...f,
-      entries: [
-        ...(f.entries || []),
-        { lotNo: "", itemDesc: "", qty1: "", qty2: "", uom: "", department: "", purpose: "" },
-      ],
+      entries: [...(f.entries || []), { lotNo: "", itemDesc: "", qty1: "", qty2: "", uom: "", department: "", purpose: "" }],
     }));
 
   const removeRow = (idx) =>
     setForm((f) => {
       const entries = [...(f.entries || [])];
       entries.splice(idx, 1);
-      return {
-        ...f,
-        entries: entries.length
-          ? entries
-          : [{ lotNo: "", itemDesc: "", qty1: "", qty2: "", uom: "", department: "", purpose: "" }],
-      };
+      return { ...f, entries: entries.length ? entries : [{ lotNo: "", itemDesc: "", qty1: "", qty2: "", uom: "", department: "", purpose: "" }] };
     });
 
-  // required at header level
-  const required = ["date", "vendor", "expectedReturnDate", "authorizedBy", "rgpType"];
+  const required = ["date", "vendor", "expectedReturnDate", "preparedBy", "authorizedBy", "rgpType"];
 
   const validate = () => {
     const e = {};
-    required.forEach((k) => !String(form[k] ?? "").trim() && (e[k] = "Required"));
+    required.forEach((k) => {
+      let value = form[k];
+      if (k === "preparedBy" && isPreparedByCustom) value = preparedByCustomValue;
+      if (k === "authorizedBy" && isAuthorizedByCustom) value = authorizedByCustomValue;
+      if (!String(value ?? "").trim()) e[k] = "Required";
+    });
 
     const entries = form.entries || [];
     if (!entries.length) {
@@ -975,52 +575,33 @@ export default function FabricRgpForm({ today = new Date(), onSubmit, onBack }) 
     return Object.keys(e).length === 0;
   };
 
-  // Silent refresh function
   const silentRefresh = () => {
-    // Store form state in sessionStorage for persistence
     const formKey = 'rgp_form_backup_' + new Date().getTime();
-    sessionStorage.setItem(formKey, JSON.stringify({
-      form,
-      customRgpType,
-      customDepartments,
-      customUoms
-    }));
-
-    // Set submission complete flag
+    sessionStorage.setItem(formKey, JSON.stringify({ form, customRgpType, customDepartments, customUoms, isPreparedByCustom, isAuthorizedByCustom, preparedByCustomValue, authorizedByCustomValue }));
     setSubmissionComplete(true);
-
-    // After a short delay, refresh the page
     setTimeout(() => {
-      // Clear the backup after successful submission
       sessionStorage.removeItem(formKey);
-      
-      // Use location.reload() for a complete silent refresh
       window.location.reload();
     }, 100);
   };
 
-  // Check for backup data on component mount
   useEffect(() => {
     const checkForBackup = () => {
       const keys = Object.keys(sessionStorage);
       const backupKey = keys.find(key => key.startsWith('rgp_form_backup_'));
-      
       if (backupKey) {
         try {
           const backup = JSON.parse(sessionStorage.getItem(backupKey));
           if (backup) {
-            // Restore form state
             setForm(backup.form);
             setCustomRgpType(backup.customRgpType);
             setCustomDepartments(backup.customDepartments);
             setCustomUoms(backup.customUoms);
-            
-            // Show success message
-            setTimeout(() => {
-              alert("✅ Form submitted successfully! Data has been restored.");
-            }, 500);
-            
-            // Clear the backup
+            setIsPreparedByCustom(backup.isPreparedByCustom);
+            setIsAuthorizedByCustom(backup.isAuthorizedByCustom);
+            setPreparedByCustomValue(backup.preparedByCustomValue);
+            setAuthorizedByCustomValue(backup.authorizedByCustomValue);
+            setTimeout(() => alert("✅ Form submitted successfully! Data has been restored."), 500);
             sessionStorage.removeItem(backupKey);
           }
         } catch (error) {
@@ -1029,18 +610,15 @@ export default function FabricRgpForm({ today = new Date(), onSubmit, onBack }) 
         }
       }
     };
-
     checkForBackup();
   }, []);
 
-  // Preview handler
   const handlePreview = (e) => {
     e.preventDefault();
     if (!validate()) return;
     setShowPreview(true);
   };
 
-  // Final submission handler
   const handleFinalSubmit = async () => {
     if (submitting) return;
     
@@ -1051,8 +629,11 @@ export default function FabricRgpForm({ today = new Date(), onSubmit, onBack }) 
 
     const first = (form.entries && form.entries[0]) || {};
     const legacyQty = (Number(first.qty1) || 0) || "";
-
     const rgpTypeFinal = form.rgpType === "Other" ? customRgpType.trim() : form.rgpType;
+    
+    // Get final Prepared By and Authorized By values
+    const finalPreparedBy = isPreparedByCustom ? preparedByCustomValue : form.preparedBy;
+    const finalAuthorizedBy = isAuthorizedByCustom ? authorizedByCustomValue : form.authorizedBy;
 
     const payload = {
       date: form.date,
@@ -1074,7 +655,8 @@ export default function FabricRgpForm({ today = new Date(), onSubmit, onBack }) 
       })),
       expectedReturnDate: form.expectedReturnDate,
       vehicleNo: form.vehicleNo,
-      authorizedBy: form.authorizedBy,
+      preparedBy: finalPreparedBy,
+      authorizedBy: finalAuthorizedBy,
       remarks: form.remarks,
       createdAt: new Date().toISOString(),
     };
@@ -1084,117 +666,44 @@ export default function FabricRgpForm({ today = new Date(), onSubmit, onBack }) 
     try {
       console.log("Submitting payload to:", WEB_APP_URL);
       
-      // Test connection first
-      const testResponse = await fetch(WEB_APP_URL + '?mode=status', {
-        method: 'GET',
-        mode: 'no-cors'
-      }).catch(() => {
-        throw new Error('Cannot connect to server. Please check your Apps Script deployment.');
-      });
-
-      // Submit data
       const res = await fetch(WEB_APP_URL, {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-          "Accept": "application/json"
-        },
+        headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8", "Accept": "application/json" },
         body: "data=" + encodeURIComponent(JSON.stringify(payload)),
       });
       
-      if (!res.ok) {
-        throw new Error(`HTTP error! status: ${res.status}`);
-      }
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
       
       const text = await res.text();
       let json;
-      try {
-        json = JSON.parse(text);
-      } catch (parseError) {
-        throw new Error('Invalid response from server');
-      }
+      try { json = JSON.parse(text); } catch (parseError) { throw new Error('Invalid response from server'); }
       
-      if (!json.ok) {
-        throw new Error(json.error || "Save failed");
-      }
+      if (!json.ok) throw new Error(json.error || "Save failed");
 
       const assignedRgpNo = json.rgpNo;
       console.log("RGP created successfully:", assignedRgpNo);
 
       const baseUrl = json.baseUrl || WEB_APP_URL;
-      const entryUrl =
-        json.entryUrl ||
-        (json.returnUrl ? String(json.returnUrl).replace("mode=return", "mode=entry")
-                        : `${baseUrl}?mode=entry&rgp=${encodeURIComponent(assignedRgpNo)}`);
-      const returnUrl =
-        json.returnUrl ||
-        `${baseUrl}?mode=return&rgp=${encodeURIComponent(assignedRgpNo)}`;
+      const entryUrl = json.entryUrl || `${baseUrl}?mode=entry&rgp=${encodeURIComponent(assignedRgpNo)}`;
+      const returnUrl = json.returnUrl || `${baseUrl}?mode=return&rgp=${encodeURIComponent(assignedRgpNo)}`;
 
-      // Generate QR codes with enhanced error handling
-      console.log("Generating QR codes...");
       let entryQR, returnQR;
-      
-      try {
-        entryQR = await generateQRCode(entryUrl);
-        console.log("Entry QR generated successfully");
-      } catch (qrError) {
-        console.error("Failed to generate entry QR:", qrError);
-        // Continue without QR codes
-      }
-      
-      try {
-        returnQR = await generateQRCode(returnUrl);
-        console.log("Return QR generated successfully");
-      } catch (qrError) {
-        console.error("Failed to generate return QR:", qrError);
-        // Continue without QR codes
-      }
+      try { entryQR = await generateQRCode(entryUrl); } catch (qrError) { console.error("Failed to generate entry QR:", qrError); }
+      try { returnQR = await generateQRCode(returnUrl); } catch (qrError) { console.error("Failed to generate return QR:", qrError); }
 
-      // Convert QR codes to data URLs if they are blob URLs
-      let entryQRDataUrl = entryQR;
-      let returnQRDataUrl = returnQR;
-      
-      if (entryQR && entryQR.startsWith('blob:')) {
-        try {
-          entryQRDataUrl = await toDataURL(entryQR);
-        } catch (error) {
-          console.warn("Failed to convert entry QR to data URL:", error);
-        }
-      }
-      
-      if (returnQR && returnQR.startsWith('blob:')) {
-        try {
-          returnQRDataUrl = await toDataURL(returnQR);
-        } catch (error) {
-          console.warn("Failed to convert return QR to data URL:", error);
-        }
-      }
+      let entryQRDataUrl = entryQR, returnQRDataUrl = returnQR;
+      if (entryQR && entryQR.startsWith('blob:')) { try { entryQRDataUrl = await toDataURL(entryQR); } catch (error) { console.warn("Failed to convert entry QR to data URL:", error); } }
+      if (returnQR && returnQR.startsWith('blob:')) { try { returnQRDataUrl = await toDataURL(returnQR); } catch (error) { console.warn("Failed to convert return QR to data URL:", error); } }
 
-      // Update form with actual RGP number
       setForm((f) => ({ ...f, rgpNo: assignedRgpNo }));
-
       if (onSubmit) onSubmit({ ...payload, rgpNo: assignedRgpNo });
       
-      // Generate PDF with new style
-      console.log("Generating PDF...");
-      const pdfDoc = generateRgpPDF({ 
-        payload: { ...payload, rgpNo: assignedRgpNo }, 
-        options: { 
-          qrEntryImage: entryQRDataUrl, 
-          qrReturnImage: returnQRDataUrl 
-        } 
-      });
-      
+      const pdfDoc = generateRgpPDF({ payload: { ...payload, rgpNo: assignedRgpNo }, options: { qrEntryImage: entryQRDataUrl, qrReturnImage: returnQRDataUrl } });
       const safeNo = assignedRgpNo.replace(/[^\w\-]+/g, "-");
       pdfDoc.save(`RGP-${safeNo}.pdf`);
       
-      // Close preview modal
       setShowPreview(false);
-      
-      // Show success message briefly
       alert(`✅ RGP Created Successfully!\nRGP No: ${assignedRgpNo}\nPDF has been downloaded.`);
-      
-      // Trigger silent refresh
       silentRefresh();
       
     } catch (err) {
@@ -1218,6 +727,7 @@ export default function FabricRgpForm({ today = new Date(), onSubmit, onBack }) 
       entries: [{ lotNo: "", itemDesc: "", qty1: "", qty2: "", uom: "", department: "", purpose: "" }],
       expectedReturnDate: "",
       vehicleNo: "",
+      preparedBy: "",
       authorizedBy: "",
       remarks: "",
     });
@@ -1225,6 +735,10 @@ export default function FabricRgpForm({ today = new Date(), onSubmit, onBack }) 
     setCustomRgpType("");
     setCustomDepartments({});
     setCustomUoms({});
+    setIsPreparedByCustom(false);
+    setIsAuthorizedByCustom(false);
+    setPreparedByCustomValue("");
+    setAuthorizedByCustomValue("");
   };
 
   const handleBack = () => {
@@ -1233,818 +747,728 @@ export default function FabricRgpForm({ today = new Date(), onSubmit, onBack }) 
     else window.location.href = "/";
   };
 
-  // Handle custom department input
-  const handleDepartmentChange = (idx, value) => {
-    updateEntry(idx, "department", value);
-    if (value !== "Other") {
-      setCustomDepartments(prev => ({ ...prev, [idx]: "" }));
+  const handlePreparedByChange = (e) => {
+    const value = e.target.value;
+    if (value === "custom") {
+      setIsPreparedByCustom(true);
+      update("preparedBy", "");
+    } else {
+      setIsPreparedByCustom(false);
+      update("preparedBy", value);
+      setPreparedByCustomValue("");
     }
   };
 
-  // Handle custom UOM input
-  const handleUomChange = (idx, value) => {
-    updateEntry(idx, "uom", value);
-    if (value !== "Other") {
-      setCustomUoms(prev => ({ ...prev, [idx]: "" }));
+  const handleAuthorizedByChange = (e) => {
+    const value = e.target.value;
+    if (value === "custom") {
+      setIsAuthorizedByCustom(true);
+      update("authorizedBy", "");
+    } else {
+      setIsAuthorizedByCustom(false);
+      update("authorizedBy", value);
+      setAuthorizedByCustomValue("");
     }
   };
+
+  const handleDepartmentChange = (idx, value) => {
+    updateEntry(idx, "department", value);
+    if (value !== "Other") setCustomDepartments(prev => ({ ...prev, [idx]: "" }));
+  };
+
+  const handleUomChange = (idx, value) => {
+    updateEntry(idx, "uom", value);
+    if (value !== "Other") setCustomUoms(prev => ({ ...prev, [idx]: "" }));
+  };
+
+  // Calculate total quantity for display
+  const totalQuantity = form.entries.reduce((sum, entry) => sum + (Number(entry.qty1) || 0), 0);
 
   return (
     <div style={styles.container}>
-      <header style={styles.header}>
-        <div style={styles.headerTop}>
-          <button
-            type="button"
-            onClick={handleBack}
-            title="Go Back"
-            style={styles.backButton}
-          >
-            <Emoji size={18} mr={6}>◀️</Emoji>
-            Back
-          </button>
-
+      {/* Professional Header */}
+      <div style={styles.headerWrapper}>
+        <div style={styles.header}>
+          <div style={styles.headerLeft}>
+            <button type="button" onClick={handleBack} style={styles.backButton}>
+              <Emoji size={18} mr={8}>←</Emoji>
+              Back
+            </button>
+            <div style={styles.logoContainer}>
+              <div style={styles.logoIcon}>🏭</div>
+              <div style={styles.logoText}>Textile ERP</div>
+            </div>
+          </div>
           <div style={styles.headerCenter}>
             <h1 style={styles.headerTitle}>
-              <Emoji size={28} mr={8}>🧾</Emoji>
+              <Emoji size={28} mr={12}>📋</Emoji>
               Returnable Gate Pass
             </h1>
-            <div style={styles.subtitleUnderTitle}>
-              <Emoji size={16} mr={6}>📄</Emoji>
+            <p style={styles.headerSubtitle}>
+              <Emoji size={14} mr={6}>🏭</Emoji>
               Material Issue & Return Tracking System
-            </div>
+            </p>
           </div>
-
           <div style={styles.rgpBadge}>
-            <strong><Emoji size={16} mr={6}>🔖</Emoji>RGP:</strong> {form.rgpNo}
+            <div style={styles.badgeLabel}>RGP Number</div>
+            <div style={styles.badgeValue}>{form.rgpNo}</div>
           </div>
         </div>
-      </header>
+      </div>
 
       <form onSubmit={handlePreview} style={styles.form}>
-        <fieldset style={styles.fieldset}>
-          <legend style={styles.legend}>
-            <Emoji size={18} mr={8}>📌</Emoji>
-            Issue Details
-          </legend>
-          <div style={styles.grid}>
-            <div style={styles.formGroup}>
-              <label style={styles.label}>
-                <Emoji size={16} mr={6}>🆔</Emoji>
-                RGP Number
-              </label>
-              <input 
-                value={form.rgpNo} 
-                readOnly 
-                style={styles.input} 
-              />
+        <div style={styles.formBody}>
+          {/* Left Column - Form Sections */}
+          <div style={styles.leftColumn}>
+            {/* Issue Details Section */}
+            <div style={styles.section}>
+              <div style={styles.sectionHeader}>
+                <Emoji size={18} mr={8}>📌</Emoji>
+                <h3 style={styles.sectionTitle}>Issue Details</h3>
+                <span style={styles.requiredBadge}>Required</span>
+              </div>
+              <div style={styles.formGrid}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>RGP Number <span style={styles.requiredStar}>*</span></label>
+                  <input value={form.rgpNo} readOnly style={styles.inputReadonly} />
+                </div>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Issue Date <span style={styles.requiredStar}>*</span></label>
+                  <input type="date" value={form.date} onChange={(e) => update("date", e.target.value)} style={errors.date ? styles.inputError : styles.input} />
+                  {errors.date && <span style={styles.errorText}>{errors.date}</span>}
+                </div>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Vendor / Party <span style={styles.requiredStar}>*</span></label>
+                  <input value={form.vendor} onChange={(e) => update("vendor", e.target.value)} placeholder="Enter vendor or party name" style={errors.vendor ? styles.inputError : styles.input} />
+                  {errors.vendor && <span style={styles.errorText}>{errors.vendor}</span>}
+                </div>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>RGP Type <span style={styles.requiredStar}>*</span></label>
+                  <select value={form.rgpType} onChange={(e) => { update("rgpType", e.target.value); if (e.target.value !== "Other") setCustomRgpType(""); }} style={errors.rgpType ? styles.inputError : styles.input}>
+                    {RGP_TYPES.map((t) => (<option key={t} value={t}>{t}</option>))}
+                  </select>
+                  {form.rgpType === "Other" && (<input value={customRgpType} onChange={(e) => setCustomRgpType(e.target.value)} placeholder="Enter custom type" style={{ ...styles.input, marginTop: '8px' }} required />)}
+                  {errors.rgpType && <span style={styles.errorText}>{errors.rgpType}</span>}
+                </div>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Expected Return Date <span style={styles.requiredStar}>*</span></label>
+                  <input type="date" value={form.expectedReturnDate} onChange={(e) => update("expectedReturnDate", e.target.value)} style={errors.expectedReturnDate ? styles.inputError : styles.input} />
+                  {errors.expectedReturnDate && <span style={styles.errorText}>{errors.expectedReturnDate}</span>}
+                </div>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Vehicle Number</label>
+                  <input value={form.vehicleNo} onChange={(e) => update("vehicleNo", e.target.value)} placeholder="Optional - Vehicle registration" style={styles.input} />
+                </div>
+              </div>
             </div>
 
-            <div style={styles.formGroup}>
-              <label style={styles.label}>
-                <Emoji size={16} mr={6}>📅</Emoji>
-                Date *
-              </label>
-              <input
-                type="date"
-                value={form.date}
-                onChange={(e) => update("date", e.target.value)}
-                style={errors.date ? { ...styles.input, ...styles.inputError } : styles.input}
-              />
-              {errors.date && <div style={styles.error}>{errors.date}</div>}
+            {/* Authorization Section */}
+            <div style={styles.section}>
+              <div style={styles.sectionHeader}>
+                <Emoji size={18} mr={8}>✍️</Emoji>
+                <h3 style={styles.sectionTitle}>Authorization</h3>
+                <span style={styles.requiredBadge}>Required</span>
+              </div>
+              <div style={styles.formGrid}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Prepared By <span style={styles.requiredStar}>*</span></label>
+                  <select value={isPreparedByCustom ? "custom" : form.preparedBy} onChange={handlePreparedByChange} style={errors.preparedBy ? styles.inputError : styles.input}>
+                    <option value="">Select Preparer</option>
+                    {PREPARED_BY_OPTIONS.map((option, idx) => (<option key={idx} value={option}>{option}</option>))}
+                    <option value="custom">+ Manual Entry</option>
+                  </select>
+                  {isPreparedByCustom && (<input type="text" placeholder="Name & designation" value={preparedByCustomValue} onChange={(e) => { setPreparedByCustomValue(e.target.value); update("preparedBy", e.target.value); }} style={{ ...styles.input, marginTop: '8px' }} />)}
+                  {errors.preparedBy && <span style={styles.errorText}>{errors.preparedBy}</span>}
+                </div>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Authorized By <span style={styles.requiredStar}>*</span></label>
+                  <select value={isAuthorizedByCustom ? "custom" : form.authorizedBy} onChange={handleAuthorizedByChange} style={errors.authorizedBy ? styles.inputError : styles.input}>
+                    <option value="">Select Authorizer</option>
+                    {AUTHORIZED_BY_OPTIONS.map((option, idx) => (<option key={idx} value={option}>{option}</option>))}
+                    <option value="custom">+ Manual Entry</option>
+                  </select>
+                  {isAuthorizedByCustom && (<input type="text" placeholder="Name & designation" value={authorizedByCustomValue} onChange={(e) => { setAuthorizedByCustomValue(e.target.value); update("authorizedBy", e.target.value); }} style={{ ...styles.input, marginTop: '8px' }} />)}
+                  {errors.authorizedBy && <span style={styles.errorText}>{errors.authorizedBy}</span>}
+                </div>
+              </div>
             </div>
 
-            <div style={styles.formGroup}>
-              <label style={styles.label}>
-                <Emoji size={16} mr={6}>🏷️</Emoji>
-                Vendor / Party *
-              </label>
-              <input
-                value={form.vendor}
-                onChange={(e) => update("vendor", e.target.value)}
-                placeholder="Enter vendor name"
-                style={errors.vendor ? { ...styles.input, ...styles.inputError } : styles.input}
-              />
-              {errors.vendor && <div style={styles.error}>{errors.vendor}</div>}
-            </div>
-
-            <div style={styles.formGroup}>
-              <label style={styles.label}>
-                <Emoji size={16} mr={6}>🧩</Emoji>
-                RGP Type *
-              </label>
-              <select
-                value={form.rgpType}
-                onChange={(e) => {
-                  update("rgpType", e.target.value);
-                  if (e.target.value !== "Other") setCustomRgpType("");
-                }}
-                style={errors.rgpType ? { ...styles.input, ...styles.inputError } : styles.input}
-              >
-                {RGP_TYPES.map((t) => (
-                  <option key={t} value={t}>{t}</option>
-                ))}
-              </select>
-              {form.rgpType === "Other" && (
-                <input
-                  value={customRgpType}
-                  onChange={(e) => setCustomRgpType(e.target.value)}
-                  placeholder="Enter custom RGP type"
-                  style={{ ...styles.input, marginTop: '8px' }}
-                  required
-                />
-              )}
-              {errors.rgpType && <div style={styles.error}>{errors.rgpType}</div>}
-            </div>
-
-            <div style={styles.formGroup}>
-              <label style={styles.label}>
-                <Emoji size={16} mr={6}>⏳</Emoji>
-                Expected Return Date *
-              </label>
-              <input
-                type="date"
-                value={form.expectedReturnDate}
-                onChange={(e) => update("expectedReturnDate", e.target.value)}
-                style={errors.expectedReturnDate ? { ...styles.input, ...styles.inputError } : styles.input}
-              />
-              {errors.expectedReturnDate && <div style={styles.error}>{errors.expectedReturnDate}</div>}
-            </div>
-
-            <div style={styles.formGroup}>
-              <label style={styles.label}>
-                <Emoji size={16} mr={6}>🚚</Emoji>
-                Vehicle Number
-              </label>
-              <input
-                value={form.vehicleNo}
-                onChange={(e) => update("vehicleNo", e.target.value)}
-                placeholder="Enter vehicle number"
-                style={styles.input}
-              />
-            </div>
-
-            <div style={styles.formGroup}>
-              <label style={styles.label}>
-                <Emoji size={16} mr={6}>✅</Emoji>
-                Authorized By *
-              </label>
-              <input
-                value={form.authorizedBy}
-                onChange={(e) => update("authorizedBy", e.target.value)}
-                placeholder="Enter authorized person"
-                style={errors.authorizedBy ? { ...styles.input, ...styles.inputError } : styles.input}
-              />
-              {errors.authorizedBy && <div style={styles.error}>{errors.authorizedBy}</div>}
-            </div>
-
-            <div style={{ ...styles.formGroup, gridColumn: "1 / -1" }}>
-              <label style={styles.label}>
-                <Emoji size={16} mr={6}>📝</Emoji>
-                Remarks
-              </label>
-              <textarea
-                value={form.remarks}
-                onChange={(e) => update("remarks", e.target.value)}
-                placeholder="Enter any additional remarks..."
-                style={styles.textarea}
-                rows="3"
-              />
+            {/* Remarks Section */}
+            <div style={styles.section}>
+              <div style={styles.sectionHeader}>
+                <Emoji size={18} mr={8}>💬</Emoji>
+                <h3 style={styles.sectionTitle}>Remarks</h3>
+              </div>
+              <textarea value={form.remarks} onChange={(e) => update("remarks", e.target.value)} placeholder="Additional remarks or special instructions..." style={styles.textarea} rows="3" />
             </div>
           </div>
-        </fieldset>
 
-        <fieldset style={styles.fieldset}>
-          <legend style={styles.legend}>
-            <Emoji size={18} mr={8}>📦</Emoji>
-            Items (Multiple entries, per-row Dept & Purpose)
-          </legend>
-          
-          {(form.entries || []).map((row, idx) => {
-            const rowErr =
-              Array.isArray(errors.entries) && errors.entries[idx]
-                ? errors.entries[idx]
-                : {};
-            return (
-              <div key={idx} style={styles.itemSection}>
-                <div style={styles.itemHeader}>
-                  <h3 style={styles.itemTitle}>
-                    <Emoji size={18} mr={8}>🎯</Emoji>
-                    Item #{idx + 1}
-                  </h3>
-                  <div style={styles.itemActions}>
-                    <button 
-                      type="button" 
-                      onClick={addRow}
-                      style={styles.smallButton}
-                      title="Add a new row"
-                    >
-                      <Emoji>➕</Emoji> Add Row
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => removeRow(idx)}
-                      disabled={(form.entries || []).length === 1}
-                      style={{ 
-                        ...styles.smallButton, 
-                        ...styles.removeButton, 
-                        opacity: (form.entries || []).length === 1 ? 0.5 : 1 
-                      }}
-                      title="Remove this row"
-                    >
-                      <Emoji>🗑️</Emoji> Remove
-                    </button>
-                  </div>
-                </div>
-
-                <div style={styles.itemGrid}>
-                  <div style={styles.formGroup}>
-                    <label style={styles.label}>
-                      <Emoji size={14} mr={6}>🔢</Emoji>
-                      Lot No.
-                    </label>
-                    <input
-                      value={row.lotNo}
-                      onChange={(e) => updateEntry(idx, "lotNo", e.target.value)}
-                      placeholder="Lot number"
-                      style={styles.input}
-                    />
-                  </div>
-
-                  <div style={styles.formGroup}>
-                    <label style={styles.label}>
-                      <Emoji size={14} mr={6}>🧾</Emoji>
-                      Description *
-                    </label>
-                    <input
-                      value={row.itemDesc}
-                      onChange={(e) => updateEntry(idx, "itemDesc", e.target.value)}
-                      placeholder="Item description"
-                      style={rowErr?.itemDesc ? { ...styles.input, ...styles.inputError } : styles.input}
-                    />
-                    {rowErr?.itemDesc && <div style={styles.error}>{rowErr.itemDesc}</div>}
-                  </div>
-
-                  <div style={styles.formGroup}>
-                    <label style={styles.label}>
-                      <Emoji size={14} mr={6}>🏭</Emoji>
-                      Department *
-                    </label>
-                    <select
-                      value={row.department}
-                      onChange={(e) => handleDepartmentChange(idx, e.target.value)}
-                      style={rowErr?.department ? { ...styles.input, ...styles.inputError } : styles.input}
-                    >
-                      <option value="">Select Department</option>
-                      {DEPT_OPTIONS.map((d) => (
-                        <option key={d} value={d}>{d}</option>
-                      ))}
-                    </select>
-                    {row.department === "Other" && (
-                      <input
-                        value={customDepartments[idx] || ""}
-                        onChange={(e) => {
-                          setCustomDepartments(prev => ({ ...prev, [idx]: e.target.value }));
-                          updateEntry(idx, "department", e.target.value);
-                        }}
-                        placeholder="Enter custom department"
-                        style={{ ...styles.input, marginTop: '8px' }}
-                        required
-                      />
-                    )}
-                    {rowErr?.department && <div style={styles.error}>{rowErr.department}</div>}
-                  </div>
-
-                  <div style={styles.formGroup}>
-                    <label style={styles.label}>
-                      <Emoji size={14} mr={6}>🎯</Emoji>
-                      Purpose *
-                    </label>
-                    <input
-                      value={row.purpose}
-                      onChange={(e) => updateEntry(idx, "purpose", e.target.value)}
-                      placeholder="Enter purpose"
-                      style={rowErr?.purpose ? { ...styles.input, ...styles.inputError } : styles.input}
-                    />
-                    {rowErr?.purpose && <div style={styles.error}>{rowErr.purpose}</div>}
-                  </div>
-
-                  <div style={styles.formGroup}>
-                    <label style={styles.label}>
-                      <Emoji size={14} mr={6}>📏</Emoji>
-                      Quantity 1 *
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={row.qty1}
-                      onChange={(e) => updateEntry(idx, "qty1", e.target.value)}
-                      placeholder="0.00"
-                      style={styles.input}
-                    />
-                    {rowErr?.qty && <div style={styles.error}>{rowErr.qty}</div>}
-                  </div>
-
-                  <div style={styles.formGroup}>
-                    <label style={styles.label}>
-                      <Emoji size={14} mr={6}>👜</Emoji>
-                      Quantity 2 (Bags)
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={row.qty2}
-                      onChange={(e) => updateEntry(idx, "qty2", e.target.value)}
-                      placeholder="0"
-                      style={styles.input}
-                    />
-                    <div style={styles.helperText}>Bags quantity - not included in total</div>
-                  </div>
-
-                  <div style={styles.formGroup}>
-                    <label style={styles.label}>
-                      <Emoji size={14} mr={6}>⚖️</Emoji>
-                      UOM *
-                    </label>
-                    <select
-                      value={row.uom}
-                      onChange={(e) => handleUomChange(idx, e.target.value)}
-                      style={rowErr?.uom ? { ...styles.input, ...styles.inputError } : styles.input}
-                    >
-                      <option value="">Select UOM</option>
-                      {UOM_OPTIONS.map((u) => (
-                        <option key={u} value={u}>{u}</option>
-                      ))}
-                    </select>
-                    {row.uom === "Other" && (
-                      <input
-                        value={customUoms[idx] || ""}
-                        onChange={(e) => {
-                          setCustomUoms(prev => ({ ...prev, [idx]: e.target.value }));
-                          updateEntry(idx, "uom", e.target.value);
-                        }}
-                        placeholder="Enter custom UOM"
-                        style={{ ...styles.input, marginTop: '8px' }}
-                        required
-                      />
-                    )}
-                    {rowErr?.uom && <div style={styles.error}>{rowErr.uom}</div>}
-                  </div>
-                </div>
-                
-                {idx < (form.entries || []).length - 1 && <hr style={styles.separator} />}
+          {/* Right Column - Items Section */}
+          <div style={styles.rightColumn}>
+            <div style={styles.section}>
+              <div style={styles.sectionHeader}>
+                <Emoji size={18} mr={8}>📦</Emoji>
+                <h3 style={styles.sectionTitle}>Material Items</h3>
+                <button type="button" onClick={addRow} style={styles.addButton}>
+                  <Emoji size={14} mr={6}>➕</Emoji>
+                  Add Item
+                </button>
               </div>
-            );
-          })}
-        </fieldset>
+              
+              <div style={styles.itemsContainer}>
+                {(form.entries || []).map((row, idx) => {
+                  const rowErr = Array.isArray(errors.entries) && errors.entries[idx] ? errors.entries[idx] : {};
+                  return (
+                    <div key={idx} style={styles.itemCard}>
+                      <div style={styles.itemHeader}>
+                        <div style={styles.itemNumber}>Item #{idx + 1}</div>
+                        <button type="button" onClick={() => removeRow(idx)} disabled={(form.entries || []).length === 1} style={{ ...styles.removeButton, opacity: (form.entries || []).length === 1 ? 0.5 : 1 }} title="Remove item">
+                          <Emoji size={14}>🗑️</Emoji> Remove
+                        </button>
+                      </div>
+                      <div style={styles.itemGrid}>
+                        <div style={styles.formGroupCompact}>
+                          <label style={styles.labelCompact}>Lot Number</label>
+                          <input value={row.lotNo} onChange={(e) => updateEntry(idx, "lotNo", e.target.value)} placeholder="Lot #" style={styles.inputCompact} />
+                        </div>
+                        <div style={styles.formGroupCompact}>
+                          <label style={styles.labelCompact}>Description <span style={styles.requiredStar}>*</span></label>
+                          <input value={row.itemDesc} onChange={(e) => updateEntry(idx, "itemDesc", e.target.value)} placeholder="Item description" style={rowErr?.itemDesc ? styles.inputCompactError : styles.inputCompact} />
+                          {rowErr?.itemDesc && <span style={styles.errorCompact}>{rowErr.itemDesc}</span>}
+                        </div>
+                        <div style={styles.formGroupCompact}>
+                          <label style={styles.labelCompact}>Department <span style={styles.requiredStar}>*</span></label>
+                          <select value={row.department} onChange={(e) => handleDepartmentChange(idx, e.target.value)} style={rowErr?.department ? styles.inputCompactError : styles.inputCompact}>
+                            <option value="">Select Department</option>
+                            {DEPT_OPTIONS.map((d) => (<option key={d} value={d}>{d}</option>))}
+                          </select>
+                          {row.department === "Other" && (<input value={customDepartments[idx] || ""} onChange={(e) => { setCustomDepartments(prev => ({ ...prev, [idx]: e.target.value })); updateEntry(idx, "department", e.target.value); }} placeholder="Custom department" style={{ ...styles.inputCompact, marginTop: '6px' }} />)}
+                          {rowErr?.department && <span style={styles.errorCompact}>{rowErr.department}</span>}
+                        </div>
+                        <div style={styles.formGroupCompact}>
+                          <label style={styles.labelCompact}>Purpose <span style={styles.requiredStar}>*</span></label>
+                          <input value={row.purpose} onChange={(e) => updateEntry(idx, "purpose", e.target.value)} placeholder="Purpose of issue" style={rowErr?.purpose ? styles.inputCompactError : styles.inputCompact} />
+                          {rowErr?.purpose && <span style={styles.errorCompact}>{rowErr.purpose}</span>}
+                        </div>
+                        <div style={styles.formGroupCompact}>
+                          <label style={styles.labelCompact}>Quantity <span style={styles.requiredStar}>*</span></label>
+                          <input type="number" min="0" step="0.01" value={row.qty1} onChange={(e) => updateEntry(idx, "qty1", e.target.value)} placeholder="0.00" style={styles.inputCompact} />
+                          {rowErr?.qty && <span style={styles.errorCompact}>{rowErr.qty}</span>}
+                        </div>
+                        <div style={styles.formGroupCompact}>
+                          <label style={styles.labelCompact}>Bags / Packages</label>
+                          <input type="number" min="0" step="1" value={row.qty2} onChange={(e) => updateEntry(idx, "qty2", e.target.value)} placeholder="0" style={styles.inputCompact} />
+                        </div>
+                        <div style={styles.formGroupCompact}>
+                          <label style={styles.labelCompact}>UOM <span style={styles.requiredStar}>*</span></label>
+                          <select value={row.uom} onChange={(e) => handleUomChange(idx, e.target.value)} style={rowErr?.uom ? styles.inputCompactError : styles.inputCompact}>
+                            <option value="">Select UOM</option>
+                            {UOM_OPTIONS.map((u) => (<option key={u} value={u}>{u}</option>))}
+                          </select>
+                          {row.uom === "Other" && (<input value={customUoms[idx] || ""} onChange={(e) => { setCustomUoms(prev => ({ ...prev, [idx]: e.target.value })); updateEntry(idx, "uom", e.target.value); }} placeholder="Custom UOM" style={{ ...styles.inputCompact, marginTop: '6px' }} />)}
+                          {rowErr?.uom && <span style={styles.errorCompact}>{rowErr.uom}</span>}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
 
+              {/* Summary Bar */}
+              <div style={styles.summaryBar}>
+                <div style={styles.summaryItem}>
+                  <span style={styles.summaryLabel}>Total Items:</span>
+                  <span style={styles.summaryValue}>{form.entries.length}</span>
+                </div>
+                <div style={styles.summaryDivider}>|</div>
+                <div style={styles.summaryItem}>
+                  <span style={styles.summaryLabel}>Total Quantity:</span>
+                  <span style={styles.summaryValue}>{totalQuantity.toLocaleString()}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Action Bar */}
         <div style={styles.actionBar}>
-          <button 
-            type="button" 
-            onClick={handleReset} 
-            disabled={submitting || submissionComplete}
-            style={styles.secondaryButton}
-          >
-            <Emoji mr={6}>↺</Emoji> Reset Form
+          <button type="button" onClick={handleReset} disabled={submitting || submissionComplete} style={styles.secondaryButton}>
+            <Emoji size={16} mr={6}>↺</Emoji>
+            Reset Form
           </button>
           <div style={styles.actionButtons}>
-            <button 
-              type="submit" 
-              disabled={submitting || submissionComplete}
-              style={styles.previewButton}
-            >
-              <Emoji mr={6}>👁️</Emoji>
-              Preview RGP
+            <button type="submit" disabled={submitting || submissionComplete} style={styles.previewButton}>
+              <Emoji size={16} mr={6}>👁️</Emoji>
+              Preview Document
             </button>
-            <button 
-              type="button"
-              onClick={handleFinalSubmit}
-              disabled={submitting || submissionComplete}
-              style={styles.primaryButton}
-            >
-              <Emoji mr={6}>
-                {submitting ? "⏳" : "📄"}
-              </Emoji>
-              {submitting ? "Saving…" : "Save & Download PDF"}
+            <button type="button" onClick={handleFinalSubmit} disabled={submitting || submissionComplete} style={styles.primaryButton}>
+              <Emoji size={16} mr={6}>{submitting ? "⏳" : "✓"}</Emoji>
+              {submitting ? "Processing..." : "Save & Create Rgp"}
             </button>
           </div>
         </div>
       </form>
 
-      {showPreview && (
-        <PreviewModal
-          payload={form}
-          onClose={() => setShowPreview(false)}
-          onConfirm={handleFinalSubmit}
-          loading={submitting}
-        />
-      )}
+      {showPreview && (<PreviewModal payload={form} onClose={() => setShowPreview(false)} onConfirm={handleFinalSubmit} loading={submitting} />)}
     </div>
   );
 }
 
-// Enhanced Professional Styles
+// Professional Modern Styles - Navy & White Theme with Enhanced Typography
 const styles = {
   container: {
-    maxWidth: "2100px",
+    maxWidth: "2200px",
     margin: "0 auto",
-    padding: "20px",
-    fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif",
-    backgroundColor: "#ffffffff",
+    padding: "24px",
+    fontFamily: "'Inter', 'Segoe UI', -apple-system, BlinkMacSystemFont, system-ui, sans-serif",
+    backgroundColor: "#ffffff",
     minHeight: "100vh",
-    lineHeight: "1.6",
   },
-
-  // HEADER - Professional gradient
+  headerWrapper: {
+    marginBottom: "28px",
+  },
   header: {
-    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-    color: "white",
-    padding: "28px 32px",
-    borderRadius: "16px",
-    marginBottom: "32px",
-    boxShadow: "0 12px 40px rgba(102, 126, 234, 0.25)",
-    position: "relative",
-    overflow: "hidden",
-  },
-  headerTop: {
-    display: "grid",
-    gridTemplateColumns: "auto 1fr auto",
+    background: "linear-gradient(135deg, #0f2b3d 0%, #1a4a6f 100%)",
+    borderRadius: "20px",
+    padding: "24px 32px",
+    display: "flex",
     alignItems: "center",
-    columnGap: "20px",
-    position: "relative",
-    zIndex: "2",
+    justifyContent: "space-between",
+    flexWrap: "wrap",
+    gap: "20px",
+    boxShadow: "0 10px 30px rgba(0, 15, 151, 0.15)",
+  },
+  headerLeft: {
+    display: "flex",
+    alignItems: "center",
+    gap: "20px",
   },
   backButton: {
-    justifySelf: "start",
     display: "inline-flex",
     alignItems: "center",
-    gap: "8px",
-    background: "rgba(255,255,255,0.15)",
-    color: "#fff",
-    border: "1px solid rgba(255,255,255,0.3)",
-    padding: "12px 20px",
+    backgroundColor: "rgba(255, 255, 255, 0.15)",
+    color: "white",
+    border: "1px solid rgba(255, 255, 255, 0.25)",
+    padding: "10px 20px",
     borderRadius: "12px",
     cursor: "pointer",
-    boxShadow: "0 4px 15px rgba(0,0,0,0.1)",
-    transition: "all 0.3s ease",
-    fontSize: "15px",
+    fontSize: "0.9rem",
     fontWeight: "600",
-    backdropFilter: "blur(10px)",
+    transition: "all 0.2s ease",
+    fontFamily: "inherit",
+    "&:hover": {
+      backgroundColor: "rgba(255, 255, 255, 0.25)",
+    },
+  },
+  logoContainer: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    padding: "8px 16px",
+    borderRadius: "40px",
+  },
+  logoIcon: {
+    fontSize: "28px",
+  },
+  logoText: {
+    fontSize: "1rem",
+    fontWeight: "600",
+    color: "white",
+    letterSpacing: "0.5px",
   },
   headerCenter: {
-    justifySelf: "center",
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    minWidth: "0",
     textAlign: "center",
   },
   headerTitle: {
-    margin: "0 0 8px 0",
-    fontSize: "2.4rem",
-    fontWeight: "800",
-    textShadow: "0 2px 8px rgba(0,0,0,0.2)",
+    margin: 0,
+    fontSize: "2.5rem",
+    fontWeight: "700",
+    color: "white",
     display: "flex",
     alignItems: "center",
-    whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    letterSpacing: "-0.5px",
+    letterSpacing: "-0.3px",
   },
-  subtitleUnderTitle: {
-    marginTop: "4px",
-    fontSize: "1.1rem",
-    fontWeight: "500",
-    opacity: "0.95",
+  headerSubtitle: {
+    margin: "8px 0 0 0",
+    fontSize: "0.95rem",
+    color: "rgba(255, 247, 247, 0.8)",
     display: "flex",
     alignItems: "center",
-    background: "rgba(255,255,255,0.1)",
-    padding: "6px 16px",
-    borderRadius: "20px",
-    backdropFilter: "blur(8px)",
+    justifyContent: "center",
   },
   rgpBadge: {
-    justifySelf: "end",
-    background: "rgba(255,255,255,0.2)",
-    padding: "14px 22px",
-    borderRadius: "14px",
-    fontSize: "1rem",
-    fontWeight: "700",
-    border: "1px solid rgba(255,255,255,0.3)",
-    backdropFilter: "blur(12px)",
-    whiteSpace: "nowrap",
-    boxShadow: "0 4px 15px rgba(0,0,0,0.1)",
+    backgroundColor: "rgba(255, 255, 255, 0.15)",
+    padding: "12px 20px",
+    borderRadius: "16px",
+    textAlign: "center",
+    minWidth: "140px",
   },
-
-  // FORM - Clean professional design
+  badgeLabel: {
+    fontSize: "0.7rem",
+    textTransform: "uppercase",
+    letterSpacing: "1px",
+    color: "rgba(255, 255, 255, 0.7)",
+    marginBottom: "4px",
+  },
+  badgeValue: {
+    fontSize: "1.1rem",
+    fontWeight: "700",
+    color: "white",
+    fontFamily: "monospace",
+  },
   form: {
     backgroundColor: "white",
-    padding: "40px",
     borderRadius: "20px",
-    boxShadow: "0 8px 40px rgba(0,0,0,0.08)",
-    border: "1px solid #e2e8f0",
+    boxShadow: "0 4px 20px rgba(0, 0, 0, 0.08)",
+    overflow: "hidden",
   },
-  fieldset: {
-    border: "2px solid #f1f5f9",
-    borderRadius: "16px",
-    padding: "32px",
-    marginBottom: "32px",
+  formBody: {
+    display: "grid",
+    gridTemplateColumns: "480px 1fr",
+    gap: "0",
+    "@media (max-width: 1200px)": {
+      gridTemplateColumns: "1fr",
+    },
+  },
+  leftColumn: {
+    padding: "28px",
+    borderRight: "1px solid #e2e8f0",
     backgroundColor: "#ffffff",
-    transition: "all 0.3s ease",
   },
-  legend: {
-    fontSize: "1.4rem",
-    fontWeight: "700",
-    color: "#00296bff",
-    padding: "12px 24px",
-    backgroundColor: "#f8fafc",
-    borderRadius: "12px",
-    border: "2px solid #e2e8f0",
-    display: "inline-flex",
+  rightColumn: {
+    padding: "28px",
+    backgroundColor: "#ffffff",
+  },
+  section: {
+    marginBottom: "32px",
+    "&:last-child": {
+      marginBottom: 0,
+    },
+  },
+  sectionHeader: {
+    display: "flex",
     alignItems: "center",
-    boxShadow: "0 2px 8px rgba(0,0,0,0.05)",
+    marginBottom: "20px",
+    paddingBottom: "12px",
+    borderBottom: "2px solid #e2e8f0",
   },
-  grid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
-    gap: "24px",
-    marginTop: "20px",
+  sectionTitle: {
+    margin: 0,
+    fontSize: "1.15rem",
+    fontWeight: "600",
+    color: "#0f2b3d",
+    flex: 1,
   },
-  itemGrid: {
+  requiredBadge: {
+    backgroundColor: "#fee2e2",
+    color: "#dc2626",
+    fontSize: "0.7rem",
+    padding: "4px 10px",
+    borderRadius: "20px",
+    fontWeight: "500",
+  },
+  formGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-    gap: "20px",
-    marginTop: "20px",
+    gridTemplateColumns: "1fr",
+    gap: "10px",
   },
   formGroup: {
     display: "flex",
     flexDirection: "column",
   },
   label: {
-    marginBottom: "10px",
+    marginBottom: "8px",
     fontWeight: "600",
-    color: "#00296bff",
-    fontSize: "0.95rem",
-    display: "flex",
-    alignItems: "center",
+    color: "#000000",
+    fontSize: "0.85rem",
+    textTransform: "uppercase",
+    letterSpacing: "0.3px",
+  },
+  requiredStar: {
+    color: "#dc2626",
+    marginLeft: "4px",
   },
   input: {
-    padding: "14px 16px",
-    border: "2px solid #e2e8f0",
+    padding: "12px 14px",
+    border: "1.5px solid #e2e8f0",
     borderRadius: "10px",
-    fontSize: "1rem",
-    transition: "all 0.3s ease",
+    fontSize: "0.9rem",
+    transition: "all 0.2s ease",
     backgroundColor: "white",
     fontFamily: "inherit",
     outline: "none",
-    color: "#000000ff",
+    color: "#000000",
+    "&:focus": {
+      borderColor: "#1a4a6f",
+      boxShadow: "0 0 0 3px rgba(26, 74, 111, 0.1)",
+    },
   },
-  textarea: {
-    padding: "14px 16px",
-    border: "2px solid #e2e8f0",
+  inputReadonly: {
+    padding: "12px 14px",
+    border: "1.5px solid #e2e8f0",
     borderRadius: "10px",
-    fontSize: "1rem",
-    transition: "all 0.3s ease",
-    backgroundColor: "white",
-    resize: "vertical",
-    minHeight: "100px",
-    fontFamily: "inherit",
-    outline: "none",
-    color: "#000000ff",
-    lineHeight: "1.5",
+    fontSize: "0.9rem",
+    backgroundColor: "#f1f5f9",
+    fontFamily: "monospace",
+    fontWeight: "600",
+    color: "#000000",
   },
   inputError: {
-    borderColor: "#ef4444",
+    borderColor: "#dc2626",
     backgroundColor: "#fef2f2",
-    boxShadow: "0 0 0 3px rgba(239, 68, 68, 0.1)",
   },
-  error: {
-    color: "#ef4444",
-    fontSize: "0.85rem",
+  errorText: {
+    color: "#dc2626",
+    fontSize: "0.7rem",
     marginTop: "6px",
-    fontWeight: "500",
-    display: "flex",
+  },
+  textarea: {
+    padding: "12px 14px",
+    border: "1.5px solid #e2e8f0",
+    borderRadius: "10px",
+    fontSize: "0.9rem",
+    resize: "vertical",
+    fontFamily: "inherit",
+    outline: "none",
+    width: "100%",
+    boxSizing: "border-box",
+    "&:focus": {
+      borderColor: "#1a4a6f",
+      boxShadow: "0 0 0 3px rgba(26, 74, 111, 0.1)",
+    },
+  },
+  addButton: {
+    display: "inline-flex",
     alignItems: "center",
-    gap: "4px",
-  },
-  helperText: {
-    color: "#6b7280",
+    backgroundColor: "#1a4a6f",
+    color: "white",
+    border: "none",
+    padding: "8px 16px",
+    borderRadius: "10px",
     fontSize: "0.8rem",
-    marginTop: "4px",
-    fontStyle: "italic",
+    fontWeight: "500",
+    cursor: "pointer",
+    transition: "all 0.2s ease",
+    fontFamily: "inherit",
+    "&:hover": {
+      backgroundColor: "#0f2b3d",
+    },
   },
-  itemSection: {
-    backgroundColor: "#f8fafc",
-    padding: "24px",
-    borderRadius: "12px",
-    marginBottom: "24px",
+  itemsContainer: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "20px",
+    maxHeight: "calc(100vh - 300px)",
+    overflowY: "auto",
+    paddingRight: "8px",
+  },
+  itemCard: {
+    backgroundColor: "white",
+    borderRadius: "14px",
+    padding: "20px",
     border: "1px solid #e2e8f0",
-    transition: "all 0.3s ease",
+    boxShadow: "0 2px 8px rgba(0, 0, 0, 0.04)",
+    transition: "box-shadow 0.2s ease",
+    "&:hover": {
+      boxShadow: "0 4px 12px rgba(0, 0, 0, 0.08)",
+    },
   },
   itemHeader: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: "20px",
-    flexWrap: "wrap",
-    gap: "16px",
+    marginBottom: "18px",
+    paddingBottom: "12px",
+    borderBottom: "1px dashed #cbd5e1",
   },
-  itemTitle: {
-    margin: "0",
-    color: "#1e293b",
-    fontSize: "1.3rem",
-    display: "flex",
-    alignItems: "center",
-    fontWeight: "700",
-  },
-  itemActions: {
-    display: "flex",
-    gap: "12px",
-  },
-  smallButton: {
-    padding: "10px 18px",
-    border: "none",
-    borderRadius: "8px",
+  itemNumber: {
     fontSize: "0.9rem",
-    cursor: "pointer",
-    transition: "all 0.3s ease",
-    backgroundColor: "#ffffff",
-    color: "#4b5563",
-    display: "flex",
-    alignItems: "center",
-    gap: "6px",
-    fontFamily: "inherit",
-    fontWeight: "600",
-    boxShadow: "0 2px 6px rgba(0,0,0,0.08)",
-    border: "1px solid #e5e7eb",
+    fontWeight: "700",
+    color: "#1a4a6f",
+    backgroundColor: "#eef2ff",
+    padding: "4px 12px",
+    borderRadius: "20px",
   },
   removeButton: {
-    backgroundColor: "#fef2f2",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "6px",
+    backgroundColor: "transparent",
     color: "#dc2626",
     border: "1px solid #fecaca",
+    padding: "6px 12px",
+    borderRadius: "8px",
+    cursor: "pointer",
+    fontSize: "0.75rem",
+    fontWeight: "500",
+    transition: "all 0.2s ease",
+    fontFamily: "inherit",
+    "&:hover": {
+      backgroundColor: "#fef2f2",
+    },
   },
-  separator: {
-    border: "none",
-    borderTop: "2px dashed #d1d5db",
-    margin: "28px 0",
+  itemGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+    gap: "14px",
+  },
+  formGroupCompact: {
+    display: "flex",
+    flexDirection: "column",
+  },
+  labelCompact: {
+    marginBottom: "6px",
+    fontWeight: "500",
+    color: "#000000",
+    fontSize: "0.9rem",
+    textTransform: "uppercase",
+    letterSpacing: "0.3px",
+  },
+  inputCompact: {
+    padding: "10px 12px",
+    border: "1.5px solid #e2e8f0",
+    borderRadius: "8px",
+    fontSize: "0.85rem",
+    transition: "all 0.2s ease",
+    backgroundColor: "white",
+    fontFamily: "inherit",
+    outline: "none",
+    "&:focus": {
+      borderColor: "#1a4a6f",
+      boxShadow: "0 0 0 2px rgba(26, 74, 111, 0.1)",
+    },
+  },
+  inputCompactError: {
+    borderColor: "#dc2626",
+    backgroundColor: "#fef2f2",
+  },
+  errorCompact: {
+    color: "#dc2626",
+    fontSize: "0.65rem",
+    marginTop: "4px",
+  },
+  summaryBar: {
+    marginTop: "20px",
+    padding: "16px 20px",
+    backgroundColor: "#f1f5f9",
+    borderRadius: "12px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: "20px",
+  },
+  summaryItem: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+  },
+  summaryLabel: {
+    fontSize: "0.85rem",
+    fontWeight: "500",
+    color: "#000000",
+  },
+  summaryValue: {
+    fontSize: "1.1rem",
+    fontWeight: "700",
+    color: "#000000",
+  },
+  summaryDivider: {
+    color: "#cbd5e1",
+    fontSize: "1.2rem",
   },
   actionBar: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    marginTop: "40px",
-    paddingTop: "28px",
-    borderTop: "2px solid #f1f5f9",
+    padding: "20px 28px",
+    backgroundColor: "#f8fafc",
+    borderTop: "1px solid #e2e8f0",
   },
   actionButtons: {
     display: "flex",
     gap: "16px",
   },
   previewButton: {
-    padding: "16px 32px",
-    background: "linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)",
+    padding: "12px 24px",
+    backgroundColor: "#1a4a6f",
     color: "white",
     border: "none",
     borderRadius: "12px",
-    fontSize: "1.1rem",
-    fontWeight: "700",
+    fontSize: "0.9rem",
+    fontWeight: "600",
     cursor: "pointer",
-    transition: "all 0.3s ease",
-    display: "flex",
+    transition: "all 0.2s ease",
+    display: "inline-flex",
     alignItems: "center",
-    gap: "10px",
-    boxShadow: "0 6px 20px rgba(59, 130, 246, 0.3)",
     fontFamily: "inherit",
-    letterSpacing: "0.5px",
+    "&:hover": {
+      backgroundColor: "#0f2b3d",
+      transform: "translateY(-1px)",
+    },
   },
   primaryButton: {
-    padding: "16px 36px",
+    padding: "12px 28px",
     background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
     color: "white",
     border: "none",
     borderRadius: "12px",
-    fontSize: "1.1rem",
+    fontSize: "0.9rem",
     fontWeight: "700",
     cursor: "pointer",
-    transition: "all 0.3s ease",
-    display: "flex",
+    transition: "all 0.2s ease",
+    display: "inline-flex",
     alignItems: "center",
-    gap: "10px",
-    boxShadow: "0 6px 20px rgba(16, 185, 129, 0.3)",
     fontFamily: "inherit",
-    letterSpacing: "0.5px",
+    boxShadow: "0 2px 8px rgba(16, 185, 129, 0.3)",
+    "&:hover": {
+      transform: "translateY(-1px)",
+      boxShadow: "0 4px 12px rgba(16, 185, 129, 0.4)",
+    },
   },
   secondaryButton: {
-    padding: "16px 32px",
-    backgroundColor: "#ffffff",
-    color: "#4b5563",
-    border: "2px solid #d1d5db",
+    padding: "12px 24px",
+    backgroundColor: "white",
+    color: "#475569",
+    border: "1.5px solid #cbd5e1",
     borderRadius: "12px",
-    fontSize: "1.1rem",
-    fontWeight: "600",
+    fontSize: "0.9rem",
+    fontWeight: "500",
     cursor: "pointer",
-    transition: "all 0.3s ease",
-    display: "flex",
+    transition: "all 0.2s ease",
+    display: "inline-flex",
     alignItems: "center",
-    gap: "8px",
     fontFamily: "inherit",
-    boxShadow: "0 2px 8px rgba(0,0,0,0.05)",
+    "&:hover": {
+      backgroundColor: "#f8fafc",
+      borderColor: "#94a3b8",
+    },
   },
 };
 
-// Enhanced hover effects
-Object.assign(styles.backButton, {
-  ':hover': {
-    background: "rgba(255,255,255,0.25)",
-    transform: "translateY(-2px)",
-    boxShadow: "0 6px 20px rgba(0,0,0,0.15)",
+// Add hover styles as CSS (since inline styles don't support :hover)
+const styleSheet = document.createElement("style");
+styleSheet.textContent = `
+  button:hover {
+    transform: translateY(-1px);
   }
-});
-
-Object.assign(styles.input, {
-  ':focus': {
-    borderColor: "#667eea",
-    boxShadow: "0 0 0 3px rgba(102, 126, 234, 0.1)",
-    backgroundColor: "#fafbff",
+  input:focus, select:focus, textarea:focus {
+    outline: none;
   }
-});
-
-Object.assign(styles.textarea, {
-  ':focus': {
-    borderColor: "#667eea",
-    boxShadow: "0 0 0 3px rgba(102, 126, 234, 0.1)",
-    backgroundColor: "#fafbff",
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
   }
-});
-
-Object.assign(styles.previewButton, {
-  ':hover:not(:disabled)': {
-    transform: "translateY(-3px)",
-    boxShadow: "0 10px 25px rgba(59, 130, 246, 0.4)",
-  },
-  ':disabled': {
-    background: "linear-gradient(135deg, #9ca3af 0%, #6b7280 100%)",
-    cursor: "not-allowed",
-    transform: "none",
-    boxShadow: "none",
+  ::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    border-radius: 10px;
   }
-});
-
-Object.assign(styles.primaryButton, {
-  ':hover:not(:disabled)': {
-    transform: "translateY(-3px)",
-    boxShadow: "0 10px 25px rgba(16, 185, 129, 0.4)",
-  },
-  ':disabled': {
-    background: "linear-gradient(135deg, #9ca3af 0%, #6b7280 100%)",
-    cursor: "not-allowed",
-    transform: "none",
-    boxShadow: "none",
+  ::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 10px;
   }
-});
-
-Object.assign(styles.secondaryButton, {
-  ':hover:not(:disabled)': {
-    backgroundColor: "#f9fafb",
-    borderColor: "#9ca3af",
-    transform: "translateY(-2px)",
-    boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
-  },
-  ':disabled': {
-    backgroundColor: "#f3f4f6",
-    cursor: "not-allowed",
-    transform: "none",
-    boxShadow: "none",
+  ::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
   }
-});
-
-Object.assign(styles.smallButton, {
-  ':hover': {
-    backgroundColor: "#f3f4f6",
-    transform: "translateY(-1px)",
-    boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
-  }
-});
-
-Object.assign(styles.removeButton, {
-  ':hover:not(:disabled)': {
-    backgroundColor: "#fecaca",
-    transform: "translateY(-1px)",
-    boxShadow: "0 4px 12px rgba(220, 38, 38, 0.2)",
-  }
-});
-
-Object.assign(styles.fieldset, {
-  ':hover': {
-    borderColor: "#e2e8f0",
-    boxShadow: "0 4px 20px rgba(0,0,0,0.05)",
-  }
-});
-
-Object.assign(styles.itemSection, {
-  ':hover': {
-    borderColor: "#cbd5e1",
-    boxShadow: "0 4px 15px rgba(0,0,0,0.05)",
-  }
-});
+`;
+document.head.appendChild(styleSheet);
