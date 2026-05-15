@@ -363,6 +363,9 @@ function saveNameToLocalStorage(key, name) {
 /** =========================
  * PDF - UPDATED VERSION with GST support and new signature fields
  * ========================= */
+/** =========================
+ * PDF - UPDATED VERSION with Two Copies (Original + Supplier Copy with Zero Rates)
+ * ========================= */
 function generatePurchaseOrderPDF({ payload, options = {} }) {
   const { 
     qrGateImage = null, 
@@ -374,433 +377,423 @@ function generatePurchaseOrderPDF({ payload, options = {} }) {
   } = options;
   
   const doc = new jsPDF({ unit: "pt", format: "a3" });
-  doc.setFont("helvetica", "normal");
-  doc.setLineWidth(0.8);
+  
+  // Helper function to draw a single PO page
+  const drawPODocument = (rowsWithValues, isSupplierCopy = false) => {
+    doc.setFont("helvetica", "normal");
+    doc.setLineWidth(0.8);
 
-  const page = { 
-    w: doc.internal.pageSize.getWidth(), 
-    h: doc.internal.pageSize.getHeight(), 
-    m: 40, 
-    gap: 12 
-  };
-
-  const setSize = (s) => doc.setFontSize(s);
-  const bold = () => doc.setFont(undefined, "bold");
-  const normal = () => doc.setFont(undefined, "normal");
-  const text = (t, x, y, opt = {}) => doc.text(String(t ?? ""), x, y, opt);
-  const rtext = (t, x, y, opt = {}) => text(t, x, y, { align: "right", ...opt });
-  const ctext = (t, x, y, opt = {}) => text(t, x, y, { align: "center", ...opt });
-  const line = (x1, y1, x2, y2) => {
-    doc.setDrawColor(0, 0, 0);
-    doc.line(x1, y1, x2, y2);
-  };
-  const wrap = (str, w) => doc.splitTextToSize(String(str || ""), w);
-  const money = (n) =>
-    (Number.isFinite(+n) ? +n : 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const roundRect = (x, y, w, h, r = 7, style = "S") => {
-    doc.setDrawColor(0, 0, 0);
-    if (doc.roundedRect) {
-      return doc.roundedRect(x, y, w, h, r, r, style);
-    } else {
-      return doc.rect(x, y, w, h, style);
-    }
-  };
-
-  const drawRect = (x, y, w, h, style = "S") => {
-    doc.setDrawColor(0, 0, 0);
-    doc.rect(x, y, w, h, style);
-  };
-
-  const SIG_H = 92;
-  const QR_TITLE_H = 18;
-  const QR_SIDE = qrSide || 96;
-  const BOTTOM_QR_H = QR_TITLE_H + 8 + QR_SIDE + 10;
-  const FOOTER_HEIGHT = BOTTOM_QR_H + 12 + SIG_H + 8;
-  const FOOTER_START_Y = page.h - page.m - FOOTER_HEIGHT;
-  const CONTENT_MAX_Y = FOOTER_START_Y - 20;
-
-  let y = page.m;
-
-  const needSpaceForContent = (requiredHeight) => {
-    if (y + requiredHeight > CONTENT_MAX_Y) {
-      drawFooterOnPage();
-      doc.addPage();
-      doc.setDrawColor(0, 0, 0);
-      roundRect(16, 16, page.w - 32, page.h - 32, 8, "S");
-      y = page.m;
-      drawPageHeader();
-      return true;
-    }
-    return false;
-  };
-
-  const drawPageHeader = () => {
-    setSize(20);
-    bold();
-    text("PURCHASE ORDER", page.w / 2, y, { align: "center" });
-    normal();
-    line(page.m, y + 6, page.w - page.m, y + 6);
-    y += 26;
-  };
-
-  const drawFooterOnPage = () => {
-    const innerW = page.w - 2 * page.m;
-    const colW = (innerW - page.gap * 2) / 3;
-    const x1 = page.m, x2 = x1 + colW + page.gap, x3 = x2 + colW + page.gap;
-
-    const sigTop = page.h - page.m - SIG_H;
-    const blockTop = sigTop - 12 - BOTTOM_QR_H;
-
-    roundRect(x1, blockTop, colW, BOTTOM_QR_H, 7, "S");
-    setSize(10);
-    bold(); text("MATERIAL RECEIVED", x1 + 10, blockTop + 14); normal();
-    line(x1 + 10, blockTop + 18, x1 + colW - 10, blockTop + 18);
-    if (qrRecvImage) {
-      const qx = x1 + 10 + (colW - 20 - QR_SIDE) / 2;
-      const qy = blockTop + 18 + 10;
-      try { doc.addImage(qrRecvImage, "PNG", qx, qy, QR_SIDE, QR_SIDE); } catch {}
-    }
-
-    const bigW = colW * 2 + page.gap;
-    roundRect(x2, blockTop, bigW, BOTTOM_QR_H, 7, "S");
-    setSize(10);
-    bold(); ctext("REMARKS", x2 + bigW / 2, blockTop + 14); normal();
-    line(x2 + 10, blockTop + 18, x2 + bigW - 10, blockTop + 18);
-    
-    if (payload.meta?.remarks && payload.meta.remarks.trim() !== "") {
-      const remarksLines = doc.splitTextToSize(payload.meta.remarks, bigW - 60);
-      const totalTextHeight = remarksLines.length * 12;
-      const boxCenterY = blockTop + BOTTOM_QR_H / 2;
-      const textStartY = boxCenterY - totalTextHeight / 2 + 6;
-      const minStartY = blockTop + 28;
-      const actualStartY = Math.max(textStartY, minStartY);
-      
-      let ry = actualStartY;
-      remarksLines.forEach(lineText => {
-        if (ry < blockTop + BOTTOM_QR_H - 10) {
-          ctext(lineText.trim(), x2 + bigW / 2, ry);
-          ry += 12;
-        }
-      });
-    } else {
-      const boxCenterY = blockTop + BOTTOM_QR_H / 2;
-      ctext("No remarks provided", x2 + bigW / 2, boxCenterY, { fontStyle: "italic", opacity: 0.5 });
-    }
-
-    // Updated signature section with 4 columns
-    const sigColWidth = (innerW - page.gap * 3) / 4;
-    const xSig1 = page.m;
-    const xSig2 = xSig1 + sigColWidth + page.gap;
-    const xSig3 = xSig2 + sigColWidth + page.gap;
-    const xSig4 = xSig3 + sigColWidth + page.gap;
-
-    [xSig1, xSig2, xSig3, xSig4].forEach((x) => roundRect(x, sigTop, sigColWidth, SIG_H, 7, "S"));
-    
-    bold();
-    text("REQUISITION RAISED BY", xSig1 + 10, sigTop + 16);
-    text("PREPARED BY", xSig2 + 10, sigTop + 16);
-    text("APPROVED BY", xSig3 + 10, sigTop + 16);
-    text("SUPPLIER'S",  xSig4 + 10, sigTop + 16);
-    normal();
-
-    const writeSig = (x, showRequisitionName, showPreparedName, showApprovedName) => {
-      const baseY = sigTop + SIG_H - 26;
-      text("Signature", x + 10, baseY - 10);
-      line(x + 10, baseY - 8, x + sigColWidth - 10, baseY - 8);
-      text("Name:", x + 10, baseY + 2);
-      
-      if (x === xSig1 && showRequisitionName && payload.meta?.requisitionRaisedBy) {
-        text(payload.meta.requisitionRaisedBy, x + 46, baseY + 2);
-      } else if (x === xSig2 && showPreparedName && payload.meta?.preparedBy) {
-        text(payload.meta.preparedBy, x + 46, baseY + 2);
-      } else if (x === xSig3 && showApprovedName && payload.meta?.approvedBy) {
-        text(payload.meta.approvedBy, x + 46, baseY + 2);
-      }
-      
-      text("Date:", x + 10, baseY + 14);
+    const page = { 
+      w: doc.internal.pageSize.getWidth(), 
+      h: doc.internal.pageSize.getHeight(), 
+      m: 40, 
+      gap: 12 
     };
-    
-    writeSig(xSig1, true, false, false);
-    writeSig(xSig2, false, true, false);
-    writeSig(xSig3, false, false, true);
-    writeSig(xSig4, false, false, false);
-  };
 
-  doc.setDrawColor(0, 0, 0);
-  roundRect(16, 16, page.w - 32, page.h - 32, 8, "S");
-  drawPageHeader();
+    const setSize = (s) => doc.setFontSize(s);
+    const bold = () => doc.setFont(undefined, "bold");
+    const normal = () => doc.setFont(undefined, "normal");
+    const text = (t, x, y, opt = {}) => doc.text(String(t ?? ""), x, y, opt);
+    const rtext = (t, x, y, opt = {}) => text(t, x, y, { align: "right", ...opt });
+    const ctext = (t, x, y, opt = {}) => text(t, x, y, { align: "center", ...opt });
+    const line = (x1, y1, x2, y2) => {
+      doc.setDrawColor(0, 0, 0);
+      doc.line(x1, y1, x2, y2);
+    };
+    const wrap = (str, w) => doc.splitTextToSize(String(str || ""), w);
+    const money = (n) =>
+      (Number.isFinite(+n) ? +n : 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const roundRect = (x, y, w, h, r = 7, style = "S") => {
+      doc.setDrawColor(0, 0, 0);
+      if (doc.roundedRect) {
+        return doc.roundedRect(x, y, w, h, r, r, style);
+      } else {
+        return doc.rect(x, y, w, h, style);
+      }
+    };
 
-  (function drawTopSection() {
-    const innerW = page.w - 2 * page.m;
-    const rPO = 0.44, rSup = 0.26, rGate = 0.30;
-    const wAvail = innerW - page.gap * 2;
-    const wPO = Math.floor(wAvail * rPO);
-    const wSup = Math.floor(wAvail * rSup);
-    const wGate = wAvail - wPO - wSup;
+    const drawRect = (x, y, w, h, style = "S") => {
+      doc.setDrawColor(0, 0, 0);
+      doc.rect(x, y, w, h, style);
+    };
 
-    const x1 = page.m;
-    const x2 = x1 + wPO + page.gap;
-    const x3 = x2 + wSup + page.gap;
+    const SIG_H = 92;
+    const QR_TITLE_H = 18;
+    const QR_SIDE = qrSide || 96;
+    const BOTTOM_QR_H = QR_TITLE_H + 8 + QR_SIDE + 10;
+    const FOOTER_HEIGHT = BOTTOM_QR_H + 12 + SIG_H + 8;
+    const FOOTER_START_Y = page.h - page.m - FOOTER_HEIGHT;
+    const CONTENT_MAX_Y = FOOTER_START_Y - 20;
 
-    const metaPad = 12;
-    const labelValueGap = 20; // Increased space between label and value (was 6, now 20)
-    
-    const mRows = [
-      ["PO #", (payload.meta?.poNumber || "").replace(/\s+/g, "")],
-      ["Order", [payload.meta?.orderDate, payload.meta?.orderTime].filter(Boolean).join(" ")],
-      ...(payload.meta?.expectedDate ? [["Expected", payload.meta.expectedDate]] : []),
-      ...(payload.meta?.leadTimeHuman ? [["Lead Time", payload.meta.leadTimeHuman]] : []),
-      ...(payload.meta?.requisitionRaisedBy ? [["Requisition Raised By", payload.meta.requisitionRaisedBy]] : []),
-      ...(payload.meta?.preparedBy ? [["Prepared By", payload.meta.preparedBy]] : []),
-      ...(payload.meta?.approvedBy ? [["Approved By", payload.meta.approvedBy]] : []),
-    ];
-    
-    // Calculate dynamic height based on content
-    let totalMetaHeight = 22 + 16; // header + initial spacing
-    mRows.forEach(([label, value]) => {
-      const labelWidth = doc.getTextWidth(`${label}:`);
-      const valueX = metaPad + labelWidth + labelValueGap;
-      const maxValueWidth = wPO - valueX - metaPad;
-      const valueLines = doc.splitTextToSize(value || "", maxValueWidth);
-      totalMetaHeight += 16 + (Math.max(0, valueLines.length - 1) * 16);
-    });
-    const metaH = totalMetaHeight;
+    let y = page.m;
 
-    const supPad = 12;
-    const supBodyW = wSup - supPad * 2;
-    const supLines = [
-      payload.supplierName || "",
-      ...wrap(payload.supplierAddress || "", supBodyW),
-      ...(payload.supplierPhone ? [`Phone: ${payload.supplierPhone}`] : []),
-      ...(payload.supplierEmail ? [`Email: ${payload.supplierEmail}`] : []),
-    ];
-    const supH = 22 + supLines.filter(Boolean).length * 12 + 16;
+    const needSpaceForContent = (requiredHeight) => {
+      if (y + requiredHeight > CONTENT_MAX_Y) {
+        drawFooterOnPage();
+        doc.addPage();
+        doc.setDrawColor(0, 0, 0);
+        roundRect(16, 16, page.w - 32, page.h - 32, 8, "S");
+        y = page.m;
+        drawPageHeader(isSupplierCopy);
+        return true;
+      }
+      return false;
+    };
 
-    const gateH = QR_TITLE_H + 8 + QR_SIDE + 10;
-    const blockH = Math.max(metaH, supH, gateH);
-    
-    if (needSpaceForContent(blockH)) return;
-
-    // PO DETAILS Box
-    roundRect(x1, y, wPO, blockH, 7, "S");
-    setSize(12);
-    bold(); text("PO DETAILS", x1 + 12, y + 14); normal();
-    line(x1 + 12, y + 18, x1 + wPO - 12, y + 18);
-    
-    let my = y + 30;
-    mRows.forEach(([label, value]) => {
-      const labelX = x1 + metaPad;
-      const labelWidth = doc.getTextWidth(`${label}:`);
-      const valueX = labelX + labelWidth + labelValueGap; // Using larger gap
-      const maxValueWidth = wPO - (valueX - x1) - metaPad;
-      
-      bold(); text(`${label}:`, labelX, my);
+    const drawPageHeader = (isSupplierCopyHeader = false) => {
+      setSize(20);
+      bold();
+      const headerText = isSupplierCopyHeader ? "PURCHASE ORDER (SUPPLIER COPY)" : "PURCHASE ORDER (ORIGINAL)";
+      text(headerText, page.w / 2, y, { align: "center" });
       normal();
-      
-      // Split value if too long
-      const valueLines = doc.splitTextToSize(value || "", maxValueWidth);
-      
-      // Draw value lines
-      valueLines.forEach((line, idx) => {
-        text(line, valueX, my + (idx * 16));
-      });
-      
-      my += 16 + (Math.max(0, valueLines.length - 1) * 16);
-    });
-
-    // SUPPLIER Box
-    roundRect(x2, y, wSup, blockH, 7, "S");
-    setSize(12);
-    bold(); text("SUPPLIER", x2 + 12, y + 14); normal();
-    line(x2 + 12, y + 18, x2 + wSup - 12, y + 18);
-    let sy = y + 30;
-    supLines.forEach((ln) => { if (ln) { text(ln, x2 + supPad, sy); sy += 12; } });
-
-    // GATE IN Box
-    roundRect(x3, y, wGate, blockH, 7, "S");
-    setSize(11);
-    bold(); text("GATE IN — SCAN (FORM)", x3 + 12, y + 14); normal();
-    line(x3 + 12, y + 18, x3 + wGate - 12, y + 18);
-    if (qrGateImage) {
-      const qx = x3 + 12 + (wGate - 24 - QR_SIDE) / 2;
-      const qy = y + 18 + 10;
-      try { doc.addImage(qrGateImage, "PNG", qx, qy, QR_SIDE, QR_SIDE); } catch {}
-    }
-
-    y += blockH + 16;
-  })();
-
-  (function drawTable() {
-    const x0 = page.m, innerW = page.w - 2 * page.m;
-    setSize(11); normal();
-
-    const rows = (payload.rows || []).map((r, i) => {
-      const qStr = (+r.qty || 0).toLocaleString();
-      const rateStr = money(+r.rate || 0);
-      const amt = (+r.qty || 0) * (+r.rate || 0);
-      const amtStr = money(amt);
-      return { ...r, _i: i, _qtyStr: qStr, _rateStr: rateStr, _amtStr: amtStr };
-    });
-
-    let totalSum = rows.reduce((sum, r) => sum + ((+r.qty || 0) * (+r.rate || 0)), 0);
-    const gstAmount = gstEnabled ? (totalSum * gstPercentage) / 100 : 0;
-    
-    const BASE_WIDTHS = {
-      line: 40, department: 120, description: 250, shade: 120,
-      uom: 70, qty: 80, rate: 90, amount: 110
+      line(page.m, y + 6, page.w - page.m, y + 6);
+      y += 26;
     };
-    
-    let cols;
-    if (shadeEnabled) {
-      cols = [
-        { key: "line", title: "#", w: BASE_WIDTHS.line, align: "right" },
-        { key: "department", title: "DEPARTMENT", w: BASE_WIDTHS.department },
-        { key: "description", title: "DESCRIPTION", w: BASE_WIDTHS.description },
-        { key: "shade", title: "SHADE", w: BASE_WIDTHS.shade },
-        { key: "uom", title: "UOM", w: BASE_WIDTHS.uom, align: "center" },
-        { key: "qty", title: "QTY", w: BASE_WIDTHS.qty, align: "right" },
-        { key: "rate", title: "RATE", w: BASE_WIDTHS.rate, align: "right" },
-        { key: "amount", title: "AMOUNT", w: BASE_WIDTHS.amount, align: "right" },
-      ];
-    } else {
-      cols = [
-        { key: "line", title: "#", w: BASE_WIDTHS.line, align: "right" },
-        { key: "department", title: "DEPARTMENT", w: BASE_WIDTHS.department },
-        { key: "description", title: "DESCRIPTION", w: BASE_WIDTHS.description },
-        { key: "uom", title: "UOM", w: BASE_WIDTHS.uom, align: "center" },
-        { key: "qty", title: "QTY", w: BASE_WIDTHS.qty, align: "right" },
-        { key: "rate", title: "RATE", w: BASE_WIDTHS.rate, align: "right" },
-        { key: "amount", title: "AMOUNT", w: BASE_WIDTHS.amount, align: "right" },
-      ];
-    }
-    
-    let totalFixedWidth = cols.reduce((sum, col) => sum + col.w, 0);
-    const widthDiff = innerW - totalFixedWidth;
-    const descColIndex = cols.findIndex(col => col.key === "description");
-    if (descColIndex >= 0 && widthDiff !== 0) {
-      cols[descColIndex].w = Math.max(150, cols[descColIndex].w + widthDiff);
-      totalFixedWidth = cols.reduce((sum, col) => sum + col.w, 0);
-    }
-    
-    if (totalFixedWidth > innerW) {
-      const overflow = totalFixedWidth - innerW;
-      if (descColIndex >= 0) {
-        cols[descColIndex].w = Math.max(100, cols[descColIndex].w - overflow);
+
+    const drawFooterOnPage = () => {
+      const innerW = page.w - 2 * page.m;
+      const colW = (innerW - page.gap * 2) / 3;
+      const x1 = page.m, x2 = x1 + colW + page.gap, x3 = x2 + colW + page.gap;
+
+      const sigTop = page.h - page.m - SIG_H;
+      const blockTop = sigTop - 12 - BOTTOM_QR_H;
+
+      roundRect(x1, blockTop, colW, BOTTOM_QR_H, 7, "S");
+      setSize(10);
+      bold(); text("MATERIAL RECEIVED", x1 + 10, blockTop + 14); normal();
+      line(x1 + 10, blockTop + 18, x1 + colW - 10, blockTop + 18);
+      if (qrRecvImage) {
+        const qx = x1 + 10 + (colW - 20 - QR_SIDE) / 2;
+        const qy = blockTop + 18 + 10;
+        try { doc.addImage(qrRecvImage, "PNG", qx, qy, QR_SIDE, QR_SIDE); } catch {}
       }
-    }
-    
-    const xs = [x0];
-    let cumulativeX = x0;
-    for (let i = 0; i < cols.length; i++) {
-      cumulativeX += cols[i].w;
-      xs.push(cumulativeX);
-    }
 
-    const headerH = 30, baseH = 24;
+      const bigW = colW * 2 + page.gap;
+      roundRect(x2, blockTop, bigW, BOTTOM_QR_H, 7, "S");
+      setSize(10);
+      bold(); ctext("REMARKS", x2 + bigW / 2, blockTop + 14); normal();
+      line(x2 + 10, blockTop + 18, x2 + bigW - 10, blockTop + 18);
+      
+      if (payload.meta?.remarks && payload.meta.remarks.trim() !== "") {
+        const remarksLines = doc.splitTextToSize(payload.meta.remarks, bigW - 60);
+        const totalTextHeight = remarksLines.length * 12;
+        const boxCenterY = blockTop + BOTTOM_QR_H / 2;
+        const textStartY = boxCenterY - totalTextHeight / 2 + 6;
+        const minStartY = blockTop + 28;
+        const actualStartY = Math.max(textStartY, minStartY);
+        
+        let ry = actualStartY;
+        remarksLines.forEach(lineText => {
+          if (ry < blockTop + BOTTOM_QR_H - 10) {
+            ctext(lineText.trim(), x2 + bigW / 2, ry);
+            ry += 12;
+          }
+        });
+      } else {
+        const boxCenterY = blockTop + BOTTOM_QR_H / 2;
+        ctext("No remarks provided", x2 + bigW / 2, boxCenterY, { fontStyle: "italic", opacity: 0.5 });
+      }
 
-    const drawTableHeader = () => {
-      if (needSpaceForContent(headerH)) {}
-      doc.setDrawColor(0, 0, 0);
-      drawRect(x0, y, innerW, headerH);
-      setSize(12); bold();
-      cols.forEach((c, i) => {
-        const cx = c.align === "right" ? xs[i + 1] - 10 : 
-                   c.align === "center" ? (xs[i] + xs[i + 1]) / 2 : 
-                   xs[i] + 10;
-        const opt = c.align === "right" ? { align: "right" } : 
-                    c.align === "center" ? { align: "center" } : 
-                    {};
-        text(c.title, cx, y + 20, opt);
-        if (i > 0) {
-          doc.setDrawColor(0, 0, 0);
-          line(xs[i], y, xs[i], y + headerH);
+      // Updated signature section with 4 columns
+      const sigColWidth = (innerW - page.gap * 3) / 4;
+      const xSig1 = page.m;
+      const xSig2 = xSig1 + sigColWidth + page.gap;
+      const xSig3 = xSig2 + sigColWidth + page.gap;
+      const xSig4 = xSig3 + sigColWidth + page.gap;
+
+      [xSig1, xSig2, xSig3, xSig4].forEach((x) => roundRect(x, sigTop, sigColWidth, SIG_H, 7, "S"));
+      
+      bold();
+      text("REQUISITION RAISED BY", xSig1 + 10, sigTop + 16);
+      text("PREPARED BY", xSig2 + 10, sigTop + 16);
+      text("APPROVED BY", xSig3 + 10, sigTop + 16);
+      text("SUPPLIER'S",  xSig4 + 10, sigTop + 16);
+      normal();
+
+      const writeSig = (x, showRequisitionName, showPreparedName, showApprovedName) => {
+        const baseY = sigTop + SIG_H - 26;
+        text("Signature", x + 10, baseY - 10);
+        line(x + 10, baseY - 8, x + sigColWidth - 10, baseY - 8);
+        text("Name:", x + 10, baseY + 2);
+        
+        if (x === xSig1 && showRequisitionName && payload.meta?.requisitionRaisedBy) {
+          text(payload.meta.requisitionRaisedBy, x + 46, baseY + 2);
+        } else if (x === xSig2 && showPreparedName && payload.meta?.preparedBy) {
+          text(payload.meta.preparedBy, x + 46, baseY + 2);
+        } else if (x === xSig3 && showApprovedName && payload.meta?.approvedBy) {
+          text(payload.meta.approvedBy, x + 46, baseY + 2);
         }
-      });
-      normal(); 
-      y += headerH;
+        
+        text("Date:", x + 10, baseY + 14);
+      };
+      
+      writeSig(xSig1, true, false, false);
+      writeSig(xSig2, false, true, false);
+      writeSig(xSig3, false, false, true);
+      writeSig(xSig4, false, false, false);
     };
 
-    const drawTableRow = (r, idx) => {
+    doc.setDrawColor(0, 0, 0);
+    roundRect(16, 16, page.w - 32, page.h - 32, 8, "S");
+    drawPageHeader(isSupplierCopy);
+
+    (function drawTopSection() {
+      const innerW = page.w - 2 * page.m;
+      const rPO = 0.44, rSup = 0.26, rGate = 0.30;
+      const wAvail = innerW - page.gap * 2;
+      const wPO = Math.floor(wAvail * rPO);
+      const wSup = Math.floor(wAvail * rSup);
+      const wGate = wAvail - wPO - wSup;
+
+      const x1 = page.m;
+      const x2 = x1 + wPO + page.gap;
+      const x3 = x2 + wSup + page.gap;
+
+      const metaPad = 12;
+      const labelValueGap = 20;
+      
+      const mRows = [
+        ["PO #", (payload.meta?.poNumber || "").replace(/\s+/g, "")],
+        ["Order", [payload.meta?.orderDate, payload.meta?.orderTime].filter(Boolean).join(" ")],
+        ...(payload.meta?.expectedDate ? [["Expected", payload.meta.expectedDate]] : []),
+        ...(payload.meta?.leadTimeHuman ? [["Lead Time", payload.meta.leadTimeHuman]] : []),
+        ...(payload.meta?.requisitionRaisedBy ? [["Requisition Raised By", payload.meta.requisitionRaisedBy]] : []),
+        ...(payload.meta?.preparedBy ? [["Prepared By", payload.meta.preparedBy]] : []),
+        ...(payload.meta?.approvedBy ? [["Approved By", payload.meta.approvedBy]] : []),
+      ];
+      
+      let totalMetaHeight = 22 + 16;
+      mRows.forEach(([label, value]) => {
+        const labelWidth = doc.getTextWidth(`${label}:`);
+        const valueX = metaPad + labelWidth + labelValueGap;
+        const maxValueWidth = wPO - valueX - metaPad;
+        const valueLines = doc.splitTextToSize(value || "", maxValueWidth);
+        totalMetaHeight += 16 + (Math.max(0, valueLines.length - 1) * 16);
+      });
+      const metaH = totalMetaHeight;
+
+      const supPad = 12;
+      const supBodyW = wSup - supPad * 2;
+      const supLines = [
+        payload.supplierName || "",
+        ...wrap(payload.supplierAddress || "", supBodyW),
+        ...(payload.supplierPhone ? [`Phone: ${payload.supplierPhone}`] : []),
+        ...(payload.supplierEmail ? [`Email: ${payload.supplierEmail}`] : []),
+      ];
+      const supH = 22 + supLines.filter(Boolean).length * 12 + 16;
+
+      const gateH = QR_TITLE_H + 8 + QR_SIDE + 10;
+      const blockH = Math.max(metaH, supH, gateH);
+      
+      if (needSpaceForContent(blockH)) return;
+
+      // PO DETAILS Box
+      roundRect(x1, y, wPO, blockH, 7, "S");
+      setSize(13);
+      bold(); text("PO DETAILS", x1 + 12, y + 14); normal();
+      line(x1 + 12, y + 18, x1 + wPO - 12, y + 18);
+      
+      let my = y + 30;
+      mRows.forEach(([label, value]) => {
+        const labelX = x1 + metaPad;
+        const labelWidth = doc.getTextWidth(`${label}:`);
+        const valueX = labelX + labelWidth + labelValueGap;
+        const maxValueWidth = wPO - (valueX - x1) - metaPad;
+        
+        bold(); text(`${label}:`, labelX, my);
+        normal();
+        
+        const valueLines = doc.splitTextToSize(value || "", maxValueWidth);
+        
+        valueLines.forEach((line, idx) => {
+          text(line, valueX, my + (idx * 16));
+        });
+        
+        my += 16 + (Math.max(0, valueLines.length - 1) * 16);
+      });
+
+      // SUPPLIER Box
+      roundRect(x2, y, wSup, blockH, 7, "S");
+      setSize(13);
+      bold(); text("SUPPLIER", x2 + 12, y + 14); normal();
+      line(x2 + 12, y + 18, x2 + wSup - 12, y + 18);
+      let sy = y + 30;
+      supLines.forEach((ln) => { if (ln) { text(ln, x2 + supPad, sy); sy += 12; } });
+
+      // GATE IN Box
+      roundRect(x3, y, wGate, blockH, 7, "S");
+      setSize(12);
+      bold(); text("GATE IN — SCAN (FORM)", x3 + 12, y + 14); normal();
+      line(x3 + 12, y + 18, x3 + wGate - 12, y + 18);
+      if (qrGateImage) {
+        const qx = x3 + 12 + (wGate - 24 - QR_SIDE) / 2;
+        const qy = y + 18 + 10;
+        try { doc.addImage(qrGateImage, "PNG", qx, qy, QR_SIDE, QR_SIDE); } catch {}
+      }
+
+      y += blockH + 16;
+    })();
+
+    (function drawTable() {
+      const x0 = page.m, innerW = page.w - 2 * page.m;
+      setSize(13); normal();
+
+      const rows = (rowsWithValues || []).map((r, i) => {
+        const qStr = (+r.qty || 0).toLocaleString();
+        // For supplier copy, set rate to 0 and amount to 0
+        const rate = isSupplierCopy ? 0 : (+r.rate || 0);
+        const amt = (+r.qty || 0) * rate;
+        const rateStr = money(rate);
+        const amtStr = money(amt);
+        return { ...r, _i: i, _qtyStr: qStr, _rateStr: rateStr, _amtStr: amtStr, _rateValue: rate };
+      });
+
+      let totalSum = rows.reduce((sum, r) => sum + ((+r.qty || 0) * r._rateValue), 0);
+      const gstAmount = gstEnabled && !isSupplierCopy ? (totalSum * gstPercentage) / 100 : 0;
+      
+      const BASE_WIDTHS = {
+        line: 40, department: 120, description: 250, shade: 120,
+        uom: 70, qty: 80, rate: 90, amount: 110
+      };
+      
+      let cols;
+      if (shadeEnabled) {
+        cols = [
+          { key: "line", title: "#", w: BASE_WIDTHS.line, align: "right" },
+          { key: "department", title: "DEPARTMENT", w: BASE_WIDTHS.department },
+          { key: "description", title: "DESCRIPTION", w: BASE_WIDTHS.description },
+          { key: "shade", title: "SHADE", w: BASE_WIDTHS.shade },
+          { key: "uom", title: "UOM", w: BASE_WIDTHS.uom, align: "center" },
+          { key: "qty", title: "QTY", w: BASE_WIDTHS.qty, align: "right" },
+          { key: "rate", title: "RATE", w: BASE_WIDTHS.rate, align: "right" },
+          { key: "amount", title: "AMOUNT", w: BASE_WIDTHS.amount, align: "right" },
+        ];
+      } else {
+        cols = [
+          { key: "line", title: "#", w: BASE_WIDTHS.line, align: "right" },
+          { key: "department", title: "DEPARTMENT", w: BASE_WIDTHS.department },
+          { key: "description", title: "DESCRIPTION", w: BASE_WIDTHS.description },
+          { key: "uom", title: "UOM", w: BASE_WIDTHS.uom, align: "center" },
+          { key: "qty", title: "QTY", w: BASE_WIDTHS.qty, align: "right" },
+          { key: "rate", title: "RATE", w: BASE_WIDTHS.rate, align: "right" },
+          { key: "amount", title: "AMOUNT", w: BASE_WIDTHS.amount, align: "right" },
+        ];
+      }
+      
+      let totalFixedWidth = cols.reduce((sum, col) => sum + col.w, 0);
+      const widthDiff = innerW - totalFixedWidth;
       const descColIndex = cols.findIndex(col => col.key === "description");
-      const shadeColIndex = shadeEnabled ? cols.findIndex(col => col.key === "shade") : -1;
+      if (descColIndex >= 0 && widthDiff !== 0) {
+        cols[descColIndex].w = Math.max(150, cols[descColIndex].w + widthDiff);
+        totalFixedWidth = cols.reduce((sum, col) => sum + col.w, 0);
+      }
       
-      const descWidth = descColIndex >= 0 ? cols[descColIndex].w - 20 : 0;
-      const shadeWidth = shadeColIndex >= 0 ? cols[shadeColIndex].w - 20 : 0;
+      if (totalFixedWidth > innerW) {
+        const overflow = totalFixedWidth - innerW;
+        if (descColIndex >= 0) {
+          cols[descColIndex].w = Math.max(100, cols[descColIndex].w - overflow);
+        }
+      }
       
-      const descLines = doc.splitTextToSize(r.description || "", descWidth);
-      const shadeLines = shadeEnabled ? doc.splitTextToSize(r.shade || "", shadeWidth) : [];
+      const xs = [x0];
+      let cumulativeX = x0;
+      for (let i = 0; i < cols.length; i++) {
+        cumulativeX += cols[i].w;
+        xs.push(cumulativeX);
+      }
+
+      const headerH = 30, baseH = 24;
+
+      const drawTableHeader = () => {
+        if (needSpaceForContent(headerH)) {}
+        doc.setDrawColor(0, 0, 0);
+        drawRect(x0, y, innerW, headerH);
+        setSize(12); bold();
+        cols.forEach((c, i) => {
+          const cx = c.align === "right" ? xs[i + 1] - 10 : 
+                     c.align === "center" ? (xs[i] + xs[i + 1]) / 2 : 
+                     xs[i] + 10;
+          const opt = c.align === "right" ? { align: "right" } : 
+                      c.align === "center" ? { align: "center" } : 
+                      {};
+          text(c.title, cx, y + 20, opt);
+          if (i > 0) {
+            doc.setDrawColor(0, 0, 0);
+            line(xs[i], y, xs[i], y + headerH);
+          }
+        });
+        normal(); 
+        y += headerH;
+      };
+
+      const drawTableRow = (r, idx) => {
+        const descColIndex = cols.findIndex(col => col.key === "description");
+        const shadeColIndex = shadeEnabled ? cols.findIndex(col => col.key === "shade") : -1;
+        
+        const descWidth = descColIndex >= 0 ? cols[descColIndex].w - 20 : 0;
+        const shadeWidth = shadeColIndex >= 0 ? cols[shadeColIndex].w - 20 : 0;
+        
+        const descLines = doc.splitTextToSize(r.description || "", descWidth);
+        const shadeLines = shadeEnabled ? doc.splitTextToSize(r.shade || "", shadeWidth) : [];
+        
+        const rowH = Math.max(baseH, descLines.length * 14 + 10, shadeLines.length * 14 + 10);
+        
+        if (needSpaceForContent(rowH)) {
+          drawTableHeader();
+        }
+        
+        doc.setDrawColor(0, 0, 0);
+        drawRect(x0, y, innerW, rowH);
+        for (let i = 1; i < xs.length - 1; i++) {
+          doc.setDrawColor(0, 0, 0);
+          line(xs[i], y, xs[i], y + rowH);
+        }
+        const yy = y + 16;
+        
+        let colIndex = 0;
+        rtext(r.line ?? idx + 1, xs[colIndex + 1] - 10, yy);
+        colIndex++;
+        text(r.department || "", xs[colIndex] + 10, yy);
+        colIndex++;
+        descLines.forEach((ln, j) => text(ln, xs[colIndex] + 10, yy + j * 14));
+        colIndex++;
+        
+        if (shadeEnabled) {
+          if (shadeLines.length > 0) {
+            shadeLines.forEach((ln, j) => text(ln, xs[colIndex] + 10, yy + j * 14));
+          } else {
+            text(r.shade || "", xs[colIndex] + 10, yy);
+          }
+          colIndex++;
+        }
+        
+        text(r.uom || "", (xs[colIndex] + xs[colIndex + 1]) / 2, yy, { align: "center" });
+        colIndex++;
+        rtext(r._qtyStr, xs[colIndex + 1] - 10, yy);
+        colIndex++;
+        rtext(r._rateStr, xs[colIndex + 1] - 10, yy);
+        colIndex++;
+        rtext(r._amtStr, xs[colIndex + 1] - 10, yy);
+        
+        y += rowH;
+        return (+r.qty || 0) * r._rateValue;
+      };
+
+      drawTableHeader();
+      totalSum = 0;
+      rows.forEach((r, i) => {
+        totalSum += drawTableRow(r, i);
+      });
       
-      const rowH = Math.max(baseH, descLines.length * 14 + 10, shadeLines.length * 14 + 10);
+      const finalGstAmount = gstEnabled && !isSupplierCopy ? (totalSum * gstPercentage) / 100 : 0;
+      const finalGrandTotal = totalSum + finalGstAmount;
+      const rateColIndex = cols.findIndex(col => col.key === "rate");
       
-      if (needSpaceForContent(rowH)) {
+      const subtotalH = 26;
+      if (needSpaceForContent(subtotalH + (gstEnabled && !isSupplierCopy ? 26 : 0) + 30)) {
         drawTableHeader();
       }
       
-      doc.setDrawColor(0, 0, 0);
-      drawRect(x0, y, innerW, rowH);
-      for (let i = 1; i < xs.length - 1; i++) {
-        doc.setDrawColor(0, 0, 0);
-        line(xs[i], y, xs[i], y + rowH);
-      }
-      const yy = y + 16;
-      
-      let colIndex = 0;
-      rtext(r.line ?? idx + 1, xs[colIndex + 1] - 10, yy);
-      colIndex++;
-      text(r.department || "", xs[colIndex] + 10, yy);
-      colIndex++;
-      descLines.forEach((ln, j) => text(ln, xs[colIndex] + 10, yy + j * 14));
-      colIndex++;
-      
-      if (shadeEnabled) {
-        if (shadeLines.length > 0) {
-          shadeLines.forEach((ln, j) => text(ln, xs[colIndex] + 10, yy + j * 14));
-        } else {
-          text(r.shade || "", xs[colIndex] + 10, yy);
-        }
-        colIndex++;
-      }
-      
-      text(r.uom || "", (xs[colIndex] + xs[colIndex + 1]) / 2, yy, { align: "center" });
-      colIndex++;
-      rtext(r._qtyStr, xs[colIndex + 1] - 10, yy);
-      colIndex++;
-      rtext(r._rateStr, xs[colIndex + 1] - 10, yy);
-      colIndex++;
-      rtext(r._amtStr, xs[colIndex + 1] - 10, yy);
-      
-      y += rowH;
-      return (+r.qty || 0) * (+r.rate || 0);
-    };
-
-    drawTableHeader();
-    totalSum = 0;
-    rows.forEach((r, i) => {
-      totalSum += drawTableRow(r, i);
-    });
-    
-    const finalGstAmount = gstEnabled ? (totalSum * gstPercentage) / 100 : 0;
-    const finalGrandTotal = totalSum + finalGstAmount;
-    const rateColIndex = cols.findIndex(col => col.key === "rate");
-    
-    const subtotalH = 26;
-    if (needSpaceForContent(subtotalH + (gstEnabled ? 26 : 0) + 30)) {
-      drawTableHeader();
-    }
-    
-    doc.setDrawColor(0, 0, 0);
-    drawRect(x0, y, innerW, subtotalH);
-    if (rateColIndex >= 0) {
-      doc.setDrawColor(0, 0, 0);
-      line(xs[rateColIndex], y, xs[rateColIndex], y + subtotalH);
-    }
-    setSize(12); bold();
-    text("SUBTOTAL", x0 + 10, y + 18);
-    rtext(money(totalSum), xs[xs.length - 1] - 10, y + 18);
-    normal(); 
-    y += subtotalH;
-    
-    if (gstEnabled) {
       doc.setDrawColor(0, 0, 0);
       drawRect(x0, y, innerW, subtotalH);
       if (rateColIndex >= 0) {
@@ -808,27 +801,75 @@ function generatePurchaseOrderPDF({ payload, options = {} }) {
         line(xs[rateColIndex], y, xs[rateColIndex], y + subtotalH);
       }
       setSize(12); bold();
-      text(`GST ${gstPercentage}%`, x0 + 10, y + 18);
-      rtext(money(finalGstAmount), xs[xs.length - 1] - 10, y + 18);
+      text("SUBTOTAL", x0 + 10, y + 18);
+      rtext(money(totalSum), xs[xs.length - 1] - 10, y + 18);
       normal(); 
       y += subtotalH;
-    }
-    
-    const totalH = 30;
-    doc.setDrawColor(0, 0, 0);
-    drawRect(x0, y, innerW, totalH);
-    if (rateColIndex >= 0) {
+      
+      if (gstEnabled && !isSupplierCopy) {
+        doc.setDrawColor(0, 0, 0);
+        drawRect(x0, y, innerW, subtotalH);
+        if (rateColIndex >= 0) {
+          doc.setDrawColor(0, 0, 0);
+          line(xs[rateColIndex], y, xs[rateColIndex], y + subtotalH);
+        }
+        setSize(12); bold();
+        text(`GST ${gstPercentage}%`, x0 + 10, y + 18);
+        rtext(money(finalGstAmount), xs[xs.length - 1] - 10, y + 18);
+        normal(); 
+        y += subtotalH;
+      }
+      
+      const totalH = 30;
       doc.setDrawColor(0, 0, 0);
-      line(xs[rateColIndex], y, xs[rateColIndex], y + totalH);
-    }
-    setSize(14); bold();
-    text(gstEnabled ? "GRAND TOTAL" : "TOTAL", x0 + 10, y + 20);
-    rtext(money(finalGrandTotal), xs[xs.length - 1] - 12, y + 20);
-    normal(); 
-    y += totalH;
-  })();
+      drawRect(x0, y, innerW, totalH);
+      if (rateColIndex >= 0) {
+        doc.setDrawColor(0, 0, 0);
+        line(xs[rateColIndex], y, xs[rateColIndex], y + totalH);
+      }
+      setSize(14); bold();
+      const totalLabel = (gstEnabled && !isSupplierCopy) ? "GRAND TOTAL" : "TOTAL";
+      text(totalLabel, x0 + 10, y + 20);
+      rtext(money(finalGrandTotal), xs[xs.length - 1] - 12, y + 20);
+      normal(); 
+      y += totalH;
+    })();
 
-  drawFooterOnPage();
+    drawFooterOnPage();
+  };
+
+  // Prepare rows for original and supplier copy
+  const originalRows = payload.rows.map(r => ({
+    ...r,
+    line: r.line,
+    department: r.department,
+    description: r.description,
+    shade: r.shade,
+    uom: r.uom,
+    qty: r.qty,
+    rate: r.rate  // Original rate
+  }));
+
+  const supplierRows = payload.rows.map(r => ({
+    ...r,
+    line: r.line,
+    department: r.department,
+    description: r.description,
+    shade: r.shade,
+    uom: r.uom,
+    qty: r.qty,
+    rate: 0  // Zero rate for supplier copy
+  }));
+
+  // Draw first page (original with rates)
+  drawPODocument(originalRows, false);
+  
+  // Add new page for supplier copy
+  doc.addPage();
+  
+  // Draw second page (supplier copy with zero rates)
+  drawPODocument(supplierRows, true);
+  
   return doc;
 }
 /** =========================
