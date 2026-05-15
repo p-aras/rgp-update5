@@ -1071,7 +1071,7 @@ export default function RgpDashboard({
       <main className="rgp-container">
         {/* Header */}
         <section className="rgp-header">
-          <h1>RGP Management Dashboard</h1>
+          <h1>RGP Management SYSTEM</h1>
           <p>Monitor and manage your Request Gate Pass system efficiently with real-time tracking and comprehensive overview</p>
           
           {/* Dashboard Controls */}
