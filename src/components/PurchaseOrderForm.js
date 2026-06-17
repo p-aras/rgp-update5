@@ -634,206 +634,228 @@ function generatePurchaseOrderPDF({ payload, options = {} }) {
       y += blockH + 16;
     })();
 
-    (function drawTable() {
-      const x0 = page.m, innerW = page.w - 2 * page.m;
-      setSize(13); normal();
+   (function drawTable() {
+  const x0 = page.m, innerW = page.w - 2 * page.m;
+  setSize(13); normal();
 
-      const rows = (rowsWithValues || []).map((r, i) => {
-        const qStr = (+r.qty || 0).toLocaleString();
-        // For supplier copy, set rate to 0 and amount to 0
-        const rate = isSupplierCopy ? 0 : (+r.rate || 0);
-        const amt = (+r.qty || 0) * rate;
-        const rateStr = money(rate);
-        const amtStr = money(amt);
-        return { ...r, _i: i, _qtyStr: qStr, _rateStr: rateStr, _amtStr: amtStr, _rateValue: rate };
-      });
+  const rows = (rowsWithValues || []).map((r, i) => {
+    const qStr = (+r.qty || 0).toLocaleString();
+    // For supplier copy, set rate to 0 and amount to 0
+    const rate = isSupplierCopy ? 0 : (+r.rate || 0);
+    const amt = (+r.qty || 0) * rate;
+    const rateStr = money(rate);
+    const amtStr = money(amt);
+    return { ...r, _i: i, _qtyStr: qStr, _rateStr: rateStr, _amtStr: amtStr, _rateValue: rate };
+  });
 
-      let totalSum = rows.reduce((sum, r) => sum + ((+r.qty || 0) * r._rateValue), 0);
-      const gstAmount = gstEnabled && !isSupplierCopy ? (totalSum * gstPercentage) / 100 : 0;
-      
-      const BASE_WIDTHS = {
-        line: 40, department: 120, description: 250, shade: 120,
-        uom: 70, qty: 80, rate: 90, amount: 110
-      };
-      
-      let cols;
-      if (shadeEnabled) {
-        cols = [
-          { key: "line", title: "#", w: BASE_WIDTHS.line, align: "right" },
-          { key: "department", title: "DEPARTMENT", w: BASE_WIDTHS.department },
-          { key: "description", title: "DESCRIPTION", w: BASE_WIDTHS.description },
-          { key: "shade", title: "SHADE", w: BASE_WIDTHS.shade },
-          { key: "uom", title: "UOM", w: BASE_WIDTHS.uom, align: "center" },
-          { key: "qty", title: "QTY", w: BASE_WIDTHS.qty, align: "right" },
-          { key: "rate", title: "RATE", w: BASE_WIDTHS.rate, align: "right" },
-          { key: "amount", title: "AMOUNT", w: BASE_WIDTHS.amount, align: "right" },
-        ];
-      } else {
-        cols = [
-          { key: "line", title: "#", w: BASE_WIDTHS.line, align: "right" },
-          { key: "department", title: "DEPARTMENT", w: BASE_WIDTHS.department },
-          { key: "description", title: "DESCRIPTION", w: BASE_WIDTHS.description },
-          { key: "uom", title: "UOM", w: BASE_WIDTHS.uom, align: "center" },
-          { key: "qty", title: "QTY", w: BASE_WIDTHS.qty, align: "right" },
-          { key: "rate", title: "RATE", w: BASE_WIDTHS.rate, align: "right" },
-          { key: "amount", title: "AMOUNT", w: BASE_WIDTHS.amount, align: "right" },
-        ];
-      }
-      
-      let totalFixedWidth = cols.reduce((sum, col) => sum + col.w, 0);
-      const widthDiff = innerW - totalFixedWidth;
-      const descColIndex = cols.findIndex(col => col.key === "description");
-      if (descColIndex >= 0 && widthDiff !== 0) {
-        cols[descColIndex].w = Math.max(150, cols[descColIndex].w + widthDiff);
-        totalFixedWidth = cols.reduce((sum, col) => sum + col.w, 0);
-      }
-      
-      if (totalFixedWidth > innerW) {
-        const overflow = totalFixedWidth - innerW;
-        if (descColIndex >= 0) {
-          cols[descColIndex].w = Math.max(100, cols[descColIndex].w - overflow);
-        }
-      }
-      
-      const xs = [x0];
-      let cumulativeX = x0;
-      for (let i = 0; i < cols.length; i++) {
-        cumulativeX += cols[i].w;
-        xs.push(cumulativeX);
-      }
+  let totalSum = rows.reduce((sum, r) => sum + ((+r.qty || 0) * r._rateValue), 0);
+  const gstAmount = gstEnabled && !isSupplierCopy ? (totalSum * gstPercentage) / 100 : 0;
+  
+  const BASE_WIDTHS = {
+    line: 40, department: 120, description: 250, shade: 120,
+    uom: 70, qty: 80, rate: 90, amount: 110
+  };
+  
+  let cols;
+  if (shadeEnabled) {
+    cols = [
+      { key: "line", title: "#", w: BASE_WIDTHS.line, align: "right" },
+      { key: "department", title: "DEPARTMENT", w: BASE_WIDTHS.department },
+      { key: "description", title: "DESCRIPTION", w: BASE_WIDTHS.description },
+      { key: "shade", title: "SHADE", w: BASE_WIDTHS.shade },
+      { key: "uom", title: "UOM", w: BASE_WIDTHS.uom, align: "center" },
+      { key: "qty", title: "QTY", w: BASE_WIDTHS.qty, align: "right" },
+      { key: "rate", title: "RATE", w: BASE_WIDTHS.rate, align: "right" },
+      { key: "amount", title: "AMOUNT", w: BASE_WIDTHS.amount, align: "right" },
+    ];
+  } else {
+    cols = [
+      { key: "line", title: "#", w: BASE_WIDTHS.line, align: "right" },
+      { key: "department", title: "DEPARTMENT", w: BASE_WIDTHS.department },
+      { key: "description", title: "DESCRIPTION", w: BASE_WIDTHS.description },
+      { key: "uom", title: "UOM", w: BASE_WIDTHS.uom, align: "center" },
+      { key: "qty", title: "QTY", w: BASE_WIDTHS.qty, align: "right" },
+      { key: "rate", title: "RATE", w: BASE_WIDTHS.rate, align: "right" },
+      { key: "amount", title: "AMOUNT", w: BASE_WIDTHS.amount, align: "right" },
+    ];
+  }
+  
+  let totalFixedWidth = cols.reduce((sum, col) => sum + col.w, 0);
+  const widthDiff = innerW - totalFixedWidth;
+  const descColIndex = cols.findIndex(col => col.key === "description");
+  if (descColIndex >= 0 && widthDiff !== 0) {
+    cols[descColIndex].w = Math.max(150, cols[descColIndex].w + widthDiff);
+    totalFixedWidth = cols.reduce((sum, col) => sum + col.w, 0);
+  }
+  
+  if (totalFixedWidth > innerW) {
+    const overflow = totalFixedWidth - innerW;
+    if (descColIndex >= 0) {
+      cols[descColIndex].w = Math.max(100, cols[descColIndex].w - overflow);
+    }
+  }
+  
+  const xs = [x0];
+  let cumulativeX = x0;
+  for (let i = 0; i < cols.length; i++) {
+    cumulativeX += cols[i].w;
+    xs.push(cumulativeX);
+  }
 
-      const headerH = 30, baseH = 24;
+  const headerH = 30, baseH = 24;
 
-      const drawTableHeader = () => {
-        if (needSpaceForContent(headerH)) {}
+  const drawTableHeader = () => {
+    if (needSpaceForContent(headerH)) {}
+    doc.setDrawColor(0, 0, 0);
+    drawRect(x0, y, innerW, headerH);
+    setSize(12); bold();
+    cols.forEach((c, i) => {
+      const cx = c.align === "right" ? xs[i + 1] - 10 : 
+                 c.align === "center" ? (xs[i] + xs[i + 1]) / 2 : 
+                 xs[i] + 10;
+      const opt = c.align === "right" ? { align: "right" } : 
+                  c.align === "center" ? { align: "center" } : 
+                  {};
+      text(c.title, cx, y + 20, opt);
+      if (i > 0) {
         doc.setDrawColor(0, 0, 0);
-        drawRect(x0, y, innerW, headerH);
-        setSize(12); bold();
-        cols.forEach((c, i) => {
-          const cx = c.align === "right" ? xs[i + 1] - 10 : 
-                     c.align === "center" ? (xs[i] + xs[i + 1]) / 2 : 
-                     xs[i] + 10;
-          const opt = c.align === "right" ? { align: "right" } : 
-                      c.align === "center" ? { align: "center" } : 
-                      {};
-          text(c.title, cx, y + 20, opt);
-          if (i > 0) {
-            doc.setDrawColor(0, 0, 0);
-            line(xs[i], y, xs[i], y + headerH);
-          }
-        });
-        normal(); 
-        y += headerH;
-      };
+        line(xs[i], y, xs[i], y + headerH);
+      }
+    });
+    normal(); 
+    y += headerH;
+  };
 
-      const drawTableRow = (r, idx) => {
-        const descColIndex = cols.findIndex(col => col.key === "description");
-        const shadeColIndex = shadeEnabled ? cols.findIndex(col => col.key === "shade") : -1;
-        
-        const descWidth = descColIndex >= 0 ? cols[descColIndex].w - 20 : 0;
-        const shadeWidth = shadeColIndex >= 0 ? cols[shadeColIndex].w - 20 : 0;
-        
-        const descLines = doc.splitTextToSize(r.description || "", descWidth);
-        const shadeLines = shadeEnabled ? doc.splitTextToSize(r.shade || "", shadeWidth) : [];
-        
-        const rowH = Math.max(baseH, descLines.length * 14 + 10, shadeLines.length * 14 + 10);
-        
-        if (needSpaceForContent(rowH)) {
-          drawTableHeader();
-        }
-        
-        doc.setDrawColor(0, 0, 0);
-        drawRect(x0, y, innerW, rowH);
-        for (let i = 1; i < xs.length - 1; i++) {
-          doc.setDrawColor(0, 0, 0);
-          line(xs[i], y, xs[i], y + rowH);
-        }
-        const yy = y + 16;
-        
-        let colIndex = 0;
-        rtext(r.line ?? idx + 1, xs[colIndex + 1] - 10, yy);
-        colIndex++;
-        text(r.department || "", xs[colIndex] + 10, yy);
-        colIndex++;
-        descLines.forEach((ln, j) => text(ln, xs[colIndex] + 10, yy + j * 14));
-        colIndex++;
-        
-        if (shadeEnabled) {
-          if (shadeLines.length > 0) {
-            shadeLines.forEach((ln, j) => text(ln, xs[colIndex] + 10, yy + j * 14));
-          } else {
-            text(r.shade || "", xs[colIndex] + 10, yy);
-          }
-          colIndex++;
-        }
-        
-        text(r.uom || "", (xs[colIndex] + xs[colIndex + 1]) / 2, yy, { align: "center" });
-        colIndex++;
-        rtext(r._qtyStr, xs[colIndex + 1] - 10, yy);
-        colIndex++;
-        rtext(r._rateStr, xs[colIndex + 1] - 10, yy);
-        colIndex++;
-        rtext(r._amtStr, xs[colIndex + 1] - 10, yy);
-        
-        y += rowH;
-        return (+r.qty || 0) * r._rateValue;
-      };
-
+  const drawTableRow = (r, idx) => {
+    const descColIndex = cols.findIndex(col => col.key === "description");
+    const shadeColIndex = shadeEnabled ? cols.findIndex(col => col.key === "shade") : -1;
+    
+    const descWidth = descColIndex >= 0 ? cols[descColIndex].w - 20 : 0;
+    const shadeWidth = shadeColIndex >= 0 ? cols[shadeColIndex].w - 20 : 0;
+    
+    const descLines = doc.splitTextToSize(r.description || "", descWidth);
+    const shadeLines = shadeEnabled ? doc.splitTextToSize(r.shade || "", shadeWidth) : [];
+    
+    const rowH = Math.max(baseH, descLines.length * 14 + 10, shadeLines.length * 14 + 10);
+    
+    if (needSpaceForContent(rowH)) {
       drawTableHeader();
-      totalSum = 0;
-      rows.forEach((r, i) => {
-        totalSum += drawTableRow(r, i);
-      });
-      
-      const finalGstAmount = gstEnabled && !isSupplierCopy ? (totalSum * gstPercentage) / 100 : 0;
-      const finalGrandTotal = totalSum + finalGstAmount;
-      const rateColIndex = cols.findIndex(col => col.key === "rate");
-      
-      const subtotalH = 26;
-      if (needSpaceForContent(subtotalH + (gstEnabled && !isSupplierCopy ? 26 : 0) + 30)) {
-        drawTableHeader();
-      }
-      
+    }
+    
+    doc.setDrawColor(0, 0, 0);
+    drawRect(x0, y, innerW, rowH);
+    for (let i = 1; i < xs.length - 1; i++) {
       doc.setDrawColor(0, 0, 0);
-      drawRect(x0, y, innerW, subtotalH);
-      if (rateColIndex >= 0) {
-        doc.setDrawColor(0, 0, 0);
-        line(xs[rateColIndex], y, xs[rateColIndex], y + subtotalH);
+      line(xs[i], y, xs[i], y + rowH);
+    }
+    const yy = y + 16;
+    
+    let colIndex = 0;
+    rtext(r.line ?? idx + 1, xs[colIndex + 1] - 10, yy);
+    colIndex++;
+    text(r.department || "", xs[colIndex] + 10, yy);
+    colIndex++;
+    descLines.forEach((ln, j) => text(ln, xs[colIndex] + 10, yy + j * 14));
+    colIndex++;
+    
+    if (shadeEnabled) {
+      if (shadeLines.length > 0) {
+        shadeLines.forEach((ln, j) => text(ln, xs[colIndex] + 10, yy + j * 14));
+      } else {
+        text(r.shade || "", xs[colIndex] + 10, yy);
       }
-      setSize(12); bold();
-      text("SUBTOTAL", x0 + 10, y + 18);
-      rtext(money(totalSum), xs[xs.length - 1] - 10, y + 18);
-      normal(); 
-      y += subtotalH;
-      
-      if (gstEnabled && !isSupplierCopy) {
-        doc.setDrawColor(0, 0, 0);
-        drawRect(x0, y, innerW, subtotalH);
-        if (rateColIndex >= 0) {
-          doc.setDrawColor(0, 0, 0);
-          line(xs[rateColIndex], y, xs[rateColIndex], y + subtotalH);
-        }
-        setSize(12); bold();
-        text(`GST ${gstPercentage}%`, x0 + 10, y + 18);
-        rtext(money(finalGstAmount), xs[xs.length - 1] - 10, y + 18);
-        normal(); 
-        y += subtotalH;
-      }
-      
-      const totalH = 30;
+      colIndex++;
+    }
+    
+    text(r.uom || "", (xs[colIndex] + xs[colIndex + 1]) / 2, yy, { align: "center" });
+    colIndex++;
+    rtext(r._qtyStr, xs[colIndex + 1] - 10, yy);
+    colIndex++;
+    rtext(r._rateStr, xs[colIndex + 1] - 10, yy);
+    colIndex++;
+    rtext(r._amtStr, xs[colIndex + 1] - 10, yy);
+    
+    y += rowH;
+    return (+r.qty || 0) * r._rateValue;
+  };
+
+  drawTableHeader();
+  totalSum = 0;
+  rows.forEach((r, i) => {
+    totalSum += drawTableRow(r, i);
+  });
+  
+  const finalGstAmount = gstEnabled && !isSupplierCopy ? (totalSum * gstPercentage) / 100 : 0;
+  const finalGrandTotal = totalSum + finalGstAmount;
+  const rateColIndex = cols.findIndex(col => col.key === "rate");
+  
+  // Calculate total quantity
+  const totalQty = rows.reduce((sum, r) => sum + (+r.qty || 0), 0);
+  
+  const subtotalH = 26;
+  if (needSpaceForContent(subtotalH + (gstEnabled && !isSupplierCopy ? 26 : 0) + 30)) {
+    drawTableHeader();
+  }
+  
+  // Draw TOTAL QUANTITY row
+  doc.setDrawColor(0, 0, 0);
+  drawRect(x0, y, innerW, subtotalH);
+  // Add vertical lines for the row
+  for (let i = 1; i < xs.length - 1; i++) {
+    doc.setDrawColor(0, 0, 0);
+    line(xs[i], y, xs[i], y + subtotalH);
+  }
+  setSize(12); bold();
+  text("TOTAL QTY", x0 + 10, y + 18);
+  // Find the QTY column index
+  const qtyColIndex = cols.findIndex(col => col.key === "qty");
+  if (qtyColIndex >= 0) {
+    rtext(totalQty.toLocaleString(), xs[qtyColIndex + 1] - 10, y + 18);
+  }
+  normal(); 
+  y += subtotalH;
+  
+  // Draw SUBTOTAL row (for amounts)
+  doc.setDrawColor(0, 0, 0);
+  drawRect(x0, y, innerW, subtotalH);
+  if (rateColIndex >= 0) {
+    doc.setDrawColor(0, 0, 0);
+    line(xs[rateColIndex], y, xs[rateColIndex], y + subtotalH);
+  }
+  setSize(12); bold();
+  text("SUBTOTAL", x0 + 10, y + 18);
+  rtext(money(totalSum), xs[xs.length - 1] - 10, y + 18);
+  normal(); 
+  y += subtotalH;
+  
+  if (gstEnabled && !isSupplierCopy) {
+    doc.setDrawColor(0, 0, 0);
+    drawRect(x0, y, innerW, subtotalH);
+    if (rateColIndex >= 0) {
       doc.setDrawColor(0, 0, 0);
-      drawRect(x0, y, innerW, totalH);
-      if (rateColIndex >= 0) {
-        doc.setDrawColor(0, 0, 0);
-        line(xs[rateColIndex], y, xs[rateColIndex], y + totalH);
-      }
-      setSize(14); bold();
-      const totalLabel = (gstEnabled && !isSupplierCopy) ? "GRAND TOTAL" : "TOTAL";
-      text(totalLabel, x0 + 10, y + 20);
-      rtext(money(finalGrandTotal), xs[xs.length - 1] - 12, y + 20);
-      normal(); 
-      y += totalH;
-    })();
+      line(xs[rateColIndex], y, xs[rateColIndex], y + subtotalH);
+    }
+    setSize(12); bold();
+    text(`GST ${gstPercentage}%`, x0 + 10, y + 18);
+    rtext(money(finalGstAmount), xs[xs.length - 1] - 10, y + 18);
+    normal(); 
+    y += subtotalH;
+  }
+  
+  const totalH = 30;
+  doc.setDrawColor(0, 0, 0);
+  drawRect(x0, y, innerW, totalH);
+  if (rateColIndex >= 0) {
+    doc.setDrawColor(0, 0, 0);
+    line(xs[rateColIndex], y, xs[rateColIndex], y + totalH);
+  }
+  setSize(14); bold();
+  const totalLabel = (gstEnabled && !isSupplierCopy) ? "GRAND TOTAL" : "TOTAL";
+  text(totalLabel, x0 + 10, y + 20);
+  rtext(money(finalGrandTotal), xs[xs.length - 1] - 12, y + 20);
+  normal(); 
+  y += totalH;
+})();
 
     drawFooterOnPage();
   };
