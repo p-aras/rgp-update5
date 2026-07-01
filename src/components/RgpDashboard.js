@@ -22,8 +22,8 @@ function EmojiIcon({ symbol, size = 24, className = "", label, animate = false, 
 
 export default function RgpDashboard({
   counts = { fabric: 0, pending: 0, partial: 0, closed: 0, overdue: 0, details: 0, history: 0, po: 0, poAsPerLotShade: 0 },
-  onScan = () => {},
-  onNavigate = () => {},
+  onScan = () => { },
+  onNavigate = () => { },
   highlights = [
     "RGP must be approved before materials exit the gate",
     "Carry original RGP copy for verification at security",
@@ -302,6 +302,21 @@ export default function RgpDashboard({
           shades: ["Red", "Blue", "Green", "Yellow"],
           totalLots: 12
         },
+        {
+          key: "poDashboard",
+          title: "PO Dashboard",
+          count: counts.poDashboard ?? 0,
+          icon: "📋",
+          path: "/rgp/po-dashboard",
+          color: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+          bgColor: "#f0fdf4",
+          animation: "pulse",
+          badge: "📊",
+          description: "All-in-one PO details dashboard & PDF regenerator",
+          info: "Search POs, view PO items, status, dates, and click to regenerate PDF copies instantly.",
+          progress: 100,
+          lastUpdated: "Just now"
+        },
       ],
       zip: [
         {
@@ -508,59 +523,73 @@ export default function RgpDashboard({
   };
 
   return (
-    <div style={{ 
+    <div style={{
       minHeight: "100vh",
-      background: "#ffffff",
-      color: "#1f2937",
-      fontFamily: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial",
+      background: "linear-gradient(135deg, #f8fafc 0%, #f1f5f9 50%, #e2e8f0 100%)",
+      color: "#0f172a",
+      fontFamily: "'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif",
       fontSize: "14px",
       lineHeight: "1.6",
-      padding: "20px"
+      padding: "32px 0"
     }}>
       <style>{`
         * { box-sizing: border-box; margin: 0; padding: 0; }
         
         .rgp-loading {
           position: fixed; top: 0; left: 0; width: 100%; height: 4px;
-          background: linear-gradient(90deg, #3b82f6, #2563eb, #1d4ed8, #3b82f6);
+          background: linear-gradient(90deg, #214b77, #3b82f6, #10b981, #214b77);
           background-size: 200% 100%;
           animation: loading-shimmer 1.2s infinite; z-index: 1000; display: none;
-          box-shadow: 0 2px 8px rgba(59, 130, 246, 0.4);
+          box-shadow: 0 2px 8px rgba(33, 75, 119, 0.4);
         }
         .rgp-loading.active { display: block; }
         @keyframes loading-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
         .rgp-container { 
-          max-width: 2200px; 
+          max-width: 100%; 
           width: 100%; 
           margin: 0 auto; 
-          padding: 0 20px;
+          padding: 0 48px;
         }
 
-        /* Header */
+        /* Header banner */
         .rgp-header {
-          background: #ffffff;
-          border-radius: 16px;
-          padding: 24px 32px;
-          margin-bottom: 24px;
-          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-          border: 1px solid #e5e7eb;
+          background: rgba(255, 255, 255, 0.7);
+          backdrop-filter: blur(20px);
+          -webkit-backdrop-filter: blur(20px);
+          border-radius: 24px;
+          padding: 36px 44px;
+          margin-bottom: 32px;
+          box-shadow: 0 10px 30px -10px rgba(15, 23, 42, 0.05), 0 1px 3px rgba(15, 23, 42, 0.02);
+          border: 1px solid rgba(255, 255, 255, 0.6);
           position: relative;
+          overflow: hidden;
+        }
+        
+        .rgp-header::before {
+          content: '';
+          position: absolute;
+          top: 0; left: 0; right: 0; height: 5px;
+          background: linear-gradient(90deg, #214b77 0%, #3b82f6 50%, #10b981 100%);
         }
 
         .rgp-header h1 {
-          font-size: 28px;
-          font-weight: 800;
-          color: #1f2937;
+          font-size: 32px;
+          font-weight: 900;
+          background: linear-gradient(135deg, #214b77 0%, #1e3a5f 100%);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
           margin-bottom: 8px;
-          letter-spacing: -0.5px;
+          letter-spacing: -0.8px;
+          text-transform: uppercase;
         }
 
         .rgp-header p {
-          color: #6b7280;
-          font-size: 16px;
+          color: #64748b;
+          font-size: 15px;
           font-weight: 500;
-          line-height: 1.5;
+          line-height: 1.6;
+          max-width: 800px;
         }
 
         /* Breadcrumb and Back Button */
@@ -568,46 +597,46 @@ export default function RgpDashboard({
           display: flex;
           align-items: center;
           gap: 12px;
-          margin-top: 16px;
-          padding-top: 16px;
-          border-top: 1px solid #e5e7eb;
+          margin-top: 20px;
+          padding-top: 20px;
+          border-top: 1px solid rgba(229, 231, 235, 0.5);
         }
         
         .rgp-back-btn {
-          background: #f9fafb;
-          border: 1px solid #e5e7eb;
-          color: #374151;
-          padding: 10px 20px;
-          border-radius: 40px;
-          font-weight: 600;
-          font-size: 14px;
+          background: #ffffff;
+          border: 1px solid #e2e8f0;
+          color: #334155;
+          padding: 10px 22px;
+          border-radius: 99px;
+          font-weight: 700;
+          font-size: 13px;
           cursor: pointer;
-          transition: all 0.2s ease;
+          transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
           display: inline-flex;
           align-items: center;
-          gap: 10px;
-          box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+          gap: 8px;
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
         }
         
         .rgp-back-btn:hover {
-          background: #f3f4f6;
-          border-color: #d1d5db;
-          transform: translateY(-1px);
-          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+          background: #f8fafc;
+          border-color: #cbd5e1;
+          transform: translateX(-2px);
+          box-shadow: 0 4px 8px rgba(0, 0, 0, 0.04);
         }
 
         .rgp-back-btn:active {
-          transform: translateY(0);
+          transform: scale(0.98);
         }
 
         .rgp-breadcrumb span {
-          color: #9ca3af;
+          color: #94a3b8;
           font-size: 14px;
         }
 
         .rgp-breadcrumb .rgp-current-category {
-          color: #3b82f6;
-          font-weight: 600;
+          color: #214b77;
+          font-weight: 700;
         }
 
         /* Dashboard Controls */
@@ -616,74 +645,77 @@ export default function RgpDashboard({
           align-items: center;
           justify-content: space-between;
           gap: 16px;
-          margin: 20px 0 24px;
+          margin: 24px 0;
           flex-wrap: wrap;
         }
 
         .rgp-view-toggle {
           display: flex;
-          gap: 8px;
-          background: #ffffff;
+          gap: 6px;
+          background: rgba(255, 255, 255, 0.8);
           padding: 4px;
-          border-radius: 40px;
-          box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
-          border: 1px solid #e5e7eb;
+          border-radius: 99px;
+          box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+          border: 1px solid rgba(229, 231, 235, 0.5);
         }
 
         .rgp-view-btn {
           padding: 8px 20px;
           border: none;
           background: transparent;
-          border-radius: 32px;
-          font-weight: 600;
-          font-size: 14px;
-          color: #6b7280;
+          border-radius: 99px;
+          font-weight: 700;
+          font-size: 13px;
+          color: #64748b;
           cursor: pointer;
-          transition: all 0.2s ease;
+          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
           display: flex;
           align-items: center;
           gap: 6px;
         }
 
         .rgp-view-btn.active {
-          background: #3b82f6;
+          background: #214b77;
           color: #ffffff;
-          box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.3);
+          box-shadow: 0 4px 12px rgba(33, 75, 119, 0.25);
         }
 
         .rgp-stats-summary {
           display: flex;
           gap: 16px;
-          background: #ffffff;
-          padding: 8px 24px;
-          border-radius: 40px;
-          box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
-          border: 1px solid #e5e7eb;
+          background: rgba(255, 255, 255, 0.8);
+          padding: 6px 20px;
+          border-radius: 99px;
+          box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+          border: 1px solid rgba(229, 231, 235, 0.5);
         }
 
         .rgp-stat-item {
           display: flex;
           align-items: center;
           gap: 8px;
-          color: #374151;
-          font-weight: 600;
-          font-size: 14px;
+          color: #475569;
+          font-weight: 700;
+          font-size: 13px;
         }
 
         .rgp-stat-value {
-          color: #3b82f6;
-          font-size: 18px;
-          font-weight: 700;
+          color: #214b77;
+          font-size: 16px;
+          font-weight: 800;
         }
 
         /* Terms Box */
         .rgp-terms-box {
-          background: #ffffff;
-          border-radius: 16px;
-          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-          border: 1px solid #e5e7eb;
+          background: rgba(255, 255, 255, 0.6);
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+          border-radius: 20px;
+          box-shadow: 0 4px 20px rgba(15, 23, 42, 0.03);
+          border: 1px solid rgba(255, 255, 255, 0.5);
           overflow: hidden;
           margin-bottom: 32px;
+          transition: all 0.3s ease;
         }
 
         .rgp-terms-head {
@@ -691,18 +723,20 @@ export default function RgpDashboard({
           align-items: center;
           gap: 12px;
           flex-wrap: wrap;
-          padding: 16px 20px;
-          background: #f9fafb;
-          border-bottom: 1px solid #e5e7eb;
+          padding: 18px 24px;
+          background: rgba(248, 250, 252, 0.5);
+          border-bottom: 1px solid rgba(229, 231, 235, 0.5);
         }
 
         .rgp-terms-title {
-          font-weight: 700;
-          font-size: 16px;
-          color: #1f2937;
+          font-weight: 800;
+          font-size: 15px;
+          color: #1e293b;
           display: flex;
           align-items: center;
           gap: 8px;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
         }
 
         .rgp-terms-actions {
@@ -713,34 +747,35 @@ export default function RgpDashboard({
 
         .rgp-ghost-btn {
           background: #ffffff;
-          border: 1px solid #e5e7eb;
-          color: #374151;
-          padding: 8px 20px;
-          border-radius: 30px;
-          font-weight: 600;
-          font-size: 14px;
+          border: 1px solid #e2e8f0;
+          color: #334155;
+          padding: 8px 18px;
+          border-radius: 99px;
+          font-weight: 700;
+          font-size: 13px;
           cursor: pointer;
           transition: all 0.2s ease;
+          box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
         }
 
         .rgp-ghost-btn:hover {
-          background: #f3f4f6;
-          border-color: #d1d5db;
+          background: #f8fafc;
+          border-color: #cbd5e1;
         }
 
         .rgp-ticker-wrap {
           position: relative;
           overflow: hidden;
-          border-bottom: 1px solid #e5e7eb;
+          border-bottom: 1px solid rgba(229, 231, 235, 0.3);
           background: #ffffff;
         }
 
         .rgp-ticker {
           display: inline-flex;
-          gap: 24px;
-          padding: 14px 20px;
+          gap: 20px;
+          padding: 12px 24px;
           white-space: nowrap;
-          animation: rgp-ticker-scroll 35s linear infinite;
+          animation: rgp-ticker-scroll 45s linear infinite;
         }
 
         .rgp-ticker:hover {
@@ -755,58 +790,62 @@ export default function RgpDashboard({
         .rgp-pill {
           display: inline-flex;
           align-items: center;
-          gap: 10px;
-          background: #f3f4f6;
-          color: #1f2937;
-          border: 1px solid #e5e7eb;
-          padding: 8px 18px;
-          border-radius: 40px;
-          font-weight: 500;
-          font-size: 13px;
-        }
-
-        .rgp-pill b {
-          color: #3b82f6;
-          background: #ffffff;
-          padding: 2px 8px;
-          border-radius: 20px;
-          margin-left: 4px;
+          gap: 8px;
+          background: #f1f5f9;
+          color: #334155;
+          border: 1px solid #e2e8f0;
+          padding: 6px 16px;
+          border-radius: 99px;
+          font-weight: 600;
           font-size: 12px;
         }
 
+        .rgp-pill b {
+          color: #214b77;
+          background: #ffffff;
+          padding: 2px 8px;
+          border-radius: 99px;
+          margin-left: 4px;
+          font-size: 10px;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+          font-weight: 700;
+        }
+
         .rgp-terms-body {
-          padding: 20px;
+          padding: 24px;
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-          gap: 16px;
+          grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+          gap: 20px;
           background: #ffffff;
         }
 
         .rgp-term-card {
-          border: 1px solid #e5e7eb;
-          border-radius: 12px;
-          padding: 16px;
+          border: 1px solid #e2e8f0;
+          border-radius: 16px;
+          padding: 20px;
           background: #ffffff;
-          transition: all 0.2s ease;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: 0 2px 4px rgba(0,0,0,0.01);
         }
 
         .rgp-term-card:hover {
-          border-color: #3b82f6;
-          box-shadow: 0 10px 15px -3px rgba(59, 130, 246, 0.1);
+          border-color: #cbd5e1;
+          box-shadow: 0 12px 24px -10px rgba(33, 75, 119, 0.1);
+          transform: translateY(-2px);
         }
 
         .rgp-term-title {
-          font-weight: 700;
-          color: #1f2937;
+          font-weight: 800;
+          color: #1e293b;
           margin-bottom: 8px;
-          font-size: 15px;
+          font-size: 14px;
           display: flex;
           align-items: center;
           gap: 8px;
         }
 
         .rgp-term-text {
-          color: #6b7280;
+          color: #64748b;
           font-weight: 500;
           font-size: 13px;
           line-height: 1.5;
@@ -816,22 +855,25 @@ export default function RgpDashboard({
         .rgp-card-grid {
           display: grid;
           grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-          gap: 20px;
-          margin-top: 20px;
+          gap: 24px;
+          margin-top: 24px;
         }
 
         .rgp-card-grid.compact {
           grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+          gap: 16px;
         }
 
         .rgp-card {
-          border: 1px solid #e5e7eb;
-          background: #ffffff;
-          border-radius: 16px;
+          border: 1px solid rgba(255, 255, 255, 0.6);
+          background: rgba(255, 255, 255, 0.7);
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+          border-radius: 24px;
           padding: 0;
           cursor: pointer;
-          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-          transition: all 0.2s ease;
+          box-shadow: 0 8px 30px rgba(0, 0, 0, 0.02), 0 1px 2px rgba(0, 0, 0, 0.01);
+          transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
           position: relative;
           overflow: hidden;
           display: flex;
@@ -842,19 +884,20 @@ export default function RgpDashboard({
         }
 
         .rgp-card:hover {
-          transform: translateY(-4px);
-          box-shadow: 0 20px 25px -5px rgba(59, 130, 246, 0.2);
-          border-color: #3b82f6;
+          transform: translateY(-6px);
+          box-shadow: 0 20px 40px -10px rgba(33, 75, 119, 0.12), 0 0 0 1px rgba(33, 75, 119, 0.05);
+          border-color: rgba(33, 75, 119, 0.2);
+          background: rgba(255, 255, 255, 0.95);
         }
 
         .rgp-card.active {
           transform: scale(0.98);
-          border-color: #3b82f6;
-          box-shadow: 0 10px 15px -3px rgba(59, 130, 246, 0.3);
+          border-color: #214b77;
+          box-shadow: 0 8px 16px rgba(33, 75, 119, 0.15);
         }
 
         .rgp-card-main {
-          padding: 24px;
+          padding: 28px;
           position: relative;
           z-index: 2;
           flex: 1;
@@ -865,21 +908,21 @@ export default function RgpDashboard({
         .rgp-card-header {
           display: flex;
           align-items: flex-start;
-          gap: 16px;
-          margin-bottom: 16px;
+          gap: 20px;
+          margin-bottom: 20px;
         }
 
         .rgp-card-icon {
-          width: 70px;
-          height: 70px;
-          border-radius: 16px;
+          width: 64px;
+          height: 64px;
+          border-radius: 18px;
           display: grid;
           place-items: center;
-          background: #f9fafb;
+          background: #ffffff;
           border: 2px solid #ffffff;
-          font-size: 32px;
-          transition: all 0.2s ease;
-          box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+          font-size: 28px;
+          transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+          box-shadow: 0 8px 16px -4px rgba(15, 23, 42, 0.08);
           position: relative;
           flex-shrink: 0;
         }
@@ -889,16 +932,18 @@ export default function RgpDashboard({
           top: -8px;
           right: -8px;
           background: #ffffff;
-          border-radius: 30px;
+          border-radius: 99px;
           padding: 4px 10px;
-          font-size: 11px;
-          font-weight: 700;
-          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+          font-size: 10px;
+          font-weight: 800;
+          box-shadow: 0 4px 8px rgba(0, 0, 0, 0.05);
           border: 2px solid;
+          letter-spacing: 0.5px;
         }
 
         .rgp-card:hover .rgp-card-icon {
-          transform: scale(1.1) rotate(3deg);
+          transform: scale(1.1) rotate(4deg);
+          box-shadow: 0 12px 20px -4px rgba(15, 23, 42, 0.12);
         }
 
         .rgp-card-info {
@@ -906,24 +951,24 @@ export default function RgpDashboard({
         }
 
         .rgp-card-title {
-          font-weight: 700;
+          font-weight: 800;
           font-size: 18px;
-          color: #1f2937;
-          margin-bottom: 4px;
-          line-height: 1.2;
+          color: #0f172a;
+          margin-bottom: 6px;
+          line-height: 1.25;
         }
 
         .rgp-card-description {
-          color: #6b7280;
+          color: #64748b;
           font-size: 13px;
           margin-bottom: 8px;
-          line-height: 1.4;
+          line-height: 1.45;
         }
 
         .rgp-card-count {
-          font-size: 22px;
+          font-size: 20px;
           font-weight: 800;
-          color: #3b82f6;
+          color: #214b77;
           display: inline-block;
         }
 
@@ -934,23 +979,24 @@ export default function RgpDashboard({
 
         .rgp-progress-bar {
           height: 6px;
-          background: #e5e7eb;
-          border-radius: 20px;
+          background: #e2e8f0;
+          border-radius: 99px;
           overflow: hidden;
           margin-bottom: 6px;
         }
 
         .rgp-progress-fill {
           height: 100%;
-          border-radius: 20px;
+          border-radius: 99px;
           transition: width 0.5s ease;
         }
 
         .rgp-progress-stats {
           display: flex;
           justify-content: space-between;
-          font-size: 12px;
-          color: #6b7280;
+          font-size: 11px;
+          font-weight: 600;
+          color: #64748b;
         }
 
         /* Shade Tags */
@@ -962,26 +1008,31 @@ export default function RgpDashboard({
         }
 
         .rgp-shade-tag {
-          background: #f3f4f6;
+          background: #f1f5f9;
           padding: 4px 10px;
-          border-radius: 20px;
+          border-radius: 99px;
           font-size: 11px;
-          font-weight: 600;
-          color: #374151;
-          border: 1px solid #e5e7eb;
+          font-weight: 700;
+          color: #475569;
+          border: 1px solid #e2e8f0;
         }
 
         .rgp-card-info-text {
-          background: #f9fafb;
-          padding: 16px;
-          border-radius: 12px;
+          background: rgba(248, 250, 252, 0.6);
+          padding: 16px 20px;
+          border-radius: 16px;
           border-left: 4px solid;
           margin-top: auto;
+          transition: all 0.3s ease;
+        }
+
+        .rgp-card:hover .rgp-card-info-text {
+          background: rgba(248, 250, 252, 0.9);
         }
 
         .rgp-card-info-content {
           font-size: 13px;
-          color: #4b5563;
+          color: #334155;
           line-height: 1.5;
           font-weight: 500;
         }
@@ -992,14 +1043,14 @@ export default function RgpDashboard({
           align-items: center;
           margin-top: 16px;
           font-size: 11px;
-          color: #9ca3af;
+          color: #94a3b8;
         }
 
         .rgp-card-arrow {
           opacity: 0;
           transform: translateX(-10px);
-          transition: all 0.2s ease;
-          color: #3b82f6;
+          transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+          color: #214b77;
           font-size: 18px;
           margin-top: 16px;
           align-self: flex-end;
@@ -1017,7 +1068,7 @@ export default function RgpDashboard({
         .emoji-wobble { animation: emoji-wobble 2s infinite; }
         .emoji-tada { animation: emoji-tada 2s infinite; }
 
-        @keyframes emoji-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.2); } }
+        @keyframes emoji-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.15); } }
         @keyframes emoji-bounce { 
           0%, 20%, 53%, 80%, 100% { transform: translate3d(0,0,0); } 
           40%, 43% { transform: translate3d(0,-8px,0); } 
@@ -1073,24 +1124,24 @@ export default function RgpDashboard({
         <section className="rgp-header">
           <h1>RGP Management SYSTEM</h1>
           <p>Monitor and manage your Request Gate Pass system efficiently with real-time tracking and comprehensive overview</p>
-          
+
           {/* Dashboard Controls */}
           <div className="rgp-dashboard-controls">
             <div className="rgp-view-toggle">
-              <button 
+              <button
                 className={`rgp-view-btn ${viewMode === 'grid' ? 'active' : ''}`}
                 onClick={() => setViewMode('grid')}
               >
                 <EmojiIcon symbol="📱" size={14} /> Grid View
               </button>
-              <button 
+              <button
                 className={`rgp-view-btn ${viewMode === 'compact' ? 'active' : ''}`}
                 onClick={() => setViewMode('compact')}
               >
                 <EmojiIcon symbol="📋" size={14} /> Compact View
               </button>
             </div>
-            
+
             <div className="rgp-stats-summary">
               <div className="rgp-stat-item">
                 <EmojiIcon symbol="📊" size={14} />
@@ -1204,8 +1255,8 @@ export default function RgpDashboard({
                   {c.progress !== undefined && (
                     <div className="rgp-card-progress">
                       <div className="rgp-progress-bar">
-                        <div 
-                          className="rgp-progress-fill" 
+                        <div
+                          className="rgp-progress-fill"
                           style={{ width: `${c.progress}%`, background: c.color }}
                         />
                       </div>
@@ -1242,7 +1293,7 @@ export default function RgpDashboard({
                 </div>
               </button>
             ))}
-          </div> 
+          </div>
         </section>
       </main>
     </div>

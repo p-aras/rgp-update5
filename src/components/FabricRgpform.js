@@ -3,7 +3,7 @@ import { jsPDF } from "jspdf";
 
 // MUST be your deployed /exec URL
 const WEB_APP_URL =
-  "https://script.google.com/macros/s/AKfycby9OHqy8_1GtE23Y0g0ZzVEycaygDtIT07VoFhI93nnCsovFBLs47rDk77uXDNdmoab7A/exec";
+  "";
 
 // Enhanced QR code generation with multiple fallbacks
 const generateQRCode = async (url) => {

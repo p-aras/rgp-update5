@@ -232,7 +232,7 @@ async function fetchAllPONumbers(sheetId, apiKey) {
   }
 }
 
-function downloadPdfBlob(doc, fileName) {
+export function downloadPdfBlob(doc, fileName) {
   const blob = doc.output("blob");
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -245,7 +245,7 @@ function downloadPdfBlob(doc, fileName) {
 }
 
 /** QR (QuickChart) → dataURL */
-async function toDataURL_QR(qrText, size = 300) {
+export async function toDataURL_QR(qrText, size = 300) {
   const src = `https://quickchart.io/qr?text=${encodeURIComponent(qrText)}&size=${size}&margin=4&ecLevel=H`;
   return await new Promise((resolve, reject) => {
     const img = new Image();
@@ -263,7 +263,7 @@ async function toDataURL_QR(qrText, size = 300) {
 }
 
 /** Build PO QR URLs that match Apps Script (action=gate/receive) */
-function buildPoQrUrls({ base = WEB_APP_BASE, poNo, orderDate, expectedDate, supervisorName }) {
+export function buildPoQrUrls({ base = WEB_APP_BASE, poNo, orderDate, expectedDate, supervisorName }) {
   const enc = encodeURIComponent;
   const who = supervisorName ? `&who=${enc(supervisorName)}` : "";
   const gateUrl = `${base}?action=gate&po=${enc(poNo)}&date=${enc(orderDate || "")}${who}`;
@@ -366,7 +366,7 @@ function saveNameToLocalStorage(key, name) {
 /** =========================
  * PDF - UPDATED VERSION with Two Copies (Original + Supplier Copy with Zero Rates)
  * ========================= */
-function generatePurchaseOrderPDF({ payload, options = {} }) {
+export function generatePurchaseOrderPDF({ payload, options = {} }) {
   const { 
     qrGateImage = null, 
     qrRecvImage = null, 
